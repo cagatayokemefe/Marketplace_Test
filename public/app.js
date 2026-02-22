@@ -1,0 +1,303 @@
+/* ── State (persisted in localStorage) ──────────────────────────────────────── */
+
+const INITIAL_BALANCE = 10000;
+
+function loadState() {
+  try {
+    const saved = localStorage.getItem('sm_state');
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return {
+    balance: INITIAL_BALANCE,
+    portfolio: {},   // { AAPL: { shares: 5, avgCost: 178.50 }, ... }
+    transactions: [],
+  };
+}
+
+function saveState(state) {
+  localStorage.setItem('sm_state', JSON.stringify(state));
+}
+
+let state = loadState();
+let currentStocks = [];
+let selectedSymbol = null;
+
+/* ── Helpers ─────────────────────────────────────────────────────────────────── */
+
+function fmt(n) {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleTimeString();
+}
+
+function showToast(msg, type = 'success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type} show`;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+/* ── Fetch stocks from server ────────────────────────────────────────────────── */
+
+async function fetchStocks() {
+  try {
+    const res = await fetch('/api/stocks');
+    currentStocks = await res.json();
+    renderMarket();
+    updateTradePanel();
+    renderPortfolio();
+  } catch (e) {
+    console.error('Failed to fetch stocks:', e);
+  }
+}
+
+// Poll every 5 seconds to keep prices fresh
+setInterval(fetchStocks, 5000);
+fetchStocks();
+
+/* ── Render Market ───────────────────────────────────────────────────────────── */
+
+function renderMarket() {
+  const grid = document.getElementById('stocks-grid');
+  grid.innerHTML = '';
+
+  currentStocks.forEach((stock) => {
+    const positive = stock.change >= 0;
+    const card = document.createElement('div');
+    card.className = 'stock-card' + (selectedSymbol === stock.symbol ? ' selected' : '');
+    card.innerHTML = `
+      <div class="stock-header">
+        <div>
+          <div class="stock-symbol">${stock.symbol}</div>
+          <div class="stock-name">${stock.name}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="stock-price">${fmt(stock.price)}</div>
+          <span class="stock-change ${positive ? 'positive' : 'negative'}">
+            ${positive ? '+' : ''}${stock.change.toFixed(2)} (${positive ? '+' : ''}${stock.changePct.toFixed(2)}%)
+          </span>
+        </div>
+      </div>
+      <p class="stock-desc">${stock.description}</p>
+      <button class="btn-trade" data-symbol="${stock.symbol}">Trade ${stock.symbol}</button>
+    `;
+    card.querySelector('.btn-trade').addEventListener('click', () => openTrade(stock.symbol));
+    grid.appendChild(card);
+  });
+
+  // update balance display
+  document.getElementById('balance').textContent = fmt(state.balance);
+}
+
+/* ── Trade Panel ─────────────────────────────────────────────────────────────── */
+
+function openTrade(symbol) {
+  selectedSymbol = symbol;
+  document.getElementById('section-trade').style.display = '';
+  document.getElementById('trade-symbol-title').textContent = symbol;
+  document.getElementById('qty-input').value = 1;
+  updateTradePanel();
+  document.getElementById('section-trade').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  renderMarket(); // refresh selected highlight
+}
+
+function updateTradePanel() {
+  if (!selectedSymbol) return;
+  const stock = currentStocks.find((s) => s.symbol === selectedSymbol);
+  if (!stock) return;
+
+  const qty = parseInt(document.getElementById('qty-input').value, 10) || 1;
+  document.getElementById('trade-price').textContent = fmt(stock.price);
+  document.getElementById('trade-owned').textContent =
+    (state.portfolio[selectedSymbol]?.shares || 0).toString();
+  document.getElementById('trade-cost').textContent = fmt(stock.price * qty);
+}
+
+document.getElementById('qty-input').addEventListener('input', updateTradePanel);
+
+document.getElementById('btn-cancel').addEventListener('click', () => {
+  selectedSymbol = null;
+  document.getElementById('section-trade').style.display = 'none';
+  renderMarket();
+});
+
+/* ── Buy ─────────────────────────────────────────────────────────────────────── */
+
+document.getElementById('btn-buy').addEventListener('click', async () => {
+  const qty = parseInt(document.getElementById('qty-input').value, 10);
+  if (!qty || qty < 1) { showToast('Enter a valid quantity.', 'error'); return; }
+
+  try {
+    const res = await fetch('/api/buy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: selectedSymbol, quantity: qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, 'error'); return; }
+
+    if (data.total > state.balance) {
+      showToast(`Insufficient funds. Need ${fmt(data.total)}, have ${fmt(state.balance)}.`, 'error');
+      return;
+    }
+
+    // Update state
+    state.balance = parseFloat((state.balance - data.total).toFixed(2));
+    if (!state.portfolio[data.symbol]) {
+      state.portfolio[data.symbol] = { shares: 0, avgCost: 0 };
+    }
+    const holding = state.portfolio[data.symbol];
+    const prevValue = holding.shares * holding.avgCost;
+    holding.shares += data.quantity;
+    holding.avgCost = parseFloat(((prevValue + data.total) / holding.shares).toFixed(2));
+
+    state.transactions.unshift({
+      time: new Date().toISOString(),
+      type: 'BUY',
+      symbol: data.symbol,
+      qty: data.quantity,
+      price: data.price,
+      total: data.total,
+    });
+
+    saveState(state);
+    showToast(`Bought ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
+    await fetchStocks();
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    showToast('Transaction failed. Try again.', 'error');
+  }
+});
+
+/* ── Sell ────────────────────────────────────────────────────────────────────── */
+
+document.getElementById('btn-sell').addEventListener('click', async () => {
+  const qty = parseInt(document.getElementById('qty-input').value, 10);
+  if (!qty || qty < 1) { showToast('Enter a valid quantity.', 'error'); return; }
+
+  const holding = state.portfolio[selectedSymbol];
+  if (!holding || holding.shares < qty) {
+    showToast(`You only own ${holding?.shares || 0} share(s) of ${selectedSymbol}.`, 'error');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/sell', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: selectedSymbol, quantity: qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, 'error'); return; }
+
+    // Update state
+    state.balance = parseFloat((state.balance + data.total).toFixed(2));
+    holding.shares -= data.quantity;
+    if (holding.shares === 0) delete state.portfolio[data.symbol];
+
+    state.transactions.unshift({
+      time: new Date().toISOString(),
+      type: 'SELL',
+      symbol: data.symbol,
+      qty: data.quantity,
+      price: data.price,
+      total: data.total,
+    });
+
+    saveState(state);
+    showToast(`Sold ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
+    await fetchStocks();
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    showToast('Transaction failed. Try again.', 'error');
+  }
+});
+
+/* ── Portfolio ───────────────────────────────────────────────────────────────── */
+
+function renderPortfolio() {
+  const body = document.getElementById('portfolio-body');
+  const table = document.getElementById('portfolio-table');
+  const empty = document.getElementById('portfolio-empty');
+  const symbols = Object.keys(state.portfolio);
+
+  if (symbols.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = '';
+    document.getElementById('portfolio-value').textContent = '$0.00';
+    return;
+  }
+
+  table.style.display = '';
+  empty.style.display = 'none';
+  body.innerHTML = '';
+
+  let totalValue = 0;
+
+  symbols.forEach((sym) => {
+    const holding = state.portfolio[sym];
+    const stock = currentStocks.find((s) => s.symbol === sym);
+    const currentPrice = stock ? stock.price : holding.avgCost;
+    const marketValue = parseFloat((holding.shares * currentPrice).toFixed(2));
+    const costBasis = parseFloat((holding.shares * holding.avgCost).toFixed(2));
+    const gain = parseFloat((marketValue - costBasis).toFixed(2));
+    const gainPct = parseFloat(((gain / costBasis) * 100).toFixed(2));
+    totalValue += marketValue;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${sym}</td>
+      <td>${stock?.name || sym}</td>
+      <td>${holding.shares}</td>
+      <td>${fmt(holding.avgCost)}</td>
+      <td>${fmt(currentPrice)}</td>
+      <td>${fmt(marketValue)}</td>
+      <td class="${gain >= 0 ? 'gain-pos' : 'gain-neg'}">
+        ${gain >= 0 ? '+' : ''}${fmt(gain)} (${gain >= 0 ? '+' : ''}${gainPct}%)
+      </td>
+    `;
+    body.appendChild(tr);
+  });
+
+  document.getElementById('portfolio-value').textContent = fmt(totalValue);
+}
+
+/* ── Transactions ────────────────────────────────────────────────────────────── */
+
+function renderTransactions() {
+  const body = document.getElementById('tx-body');
+  const table = document.getElementById('tx-table');
+  const empty = document.getElementById('tx-empty');
+
+  if (state.transactions.length === 0) {
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+
+  table.style.display = '';
+  empty.style.display = 'none';
+  body.innerHTML = '';
+
+  state.transactions.slice(0, 50).forEach((tx) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${fmtTime(tx.time)}</td>
+      <td class="${tx.type === 'BUY' ? 'tx-buy' : 'tx-sell'}">${tx.type}</td>
+      <td>${tx.symbol}</td>
+      <td>${tx.qty}</td>
+      <td>${fmt(tx.price)}</td>
+      <td>${fmt(tx.total)}</td>
+    `;
+    body.appendChild(tr);
+  });
+}
+
+// Initial renders
+renderPortfolio();
+renderTransactions();

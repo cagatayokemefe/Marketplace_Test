@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In — Stock Marketplace</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <h1 class="logo">📈 Stock Marketplace</h1>
+    </div>
+  </header>
+
+  <main class="auth-container">
+    <div class="card auth-card">
+      <h2>Sign In</h2>
+
+      <div id="auth-error" class="auth-error" hidden></div>
+
+      <form id="login-form" novalidate>
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input
+            type="text"
+            id="username"
+            name="username"
+            autocomplete="username"
+            placeholder="your_username"
+            maxlength="30"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            autocomplete="current-password"
+            placeholder="••••••••"
+            required
+          />
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-full" id="submit-btn">
+          Sign In
+        </button>
+      </form>
+
+      <p class="auth-footer">
+        Don't have an account? <a href="/register">Create one</a>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit-btn');
+      const errEl = document.getElementById('auth-error');
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      errEl.hidden = true;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          errEl.textContent = data.error || 'Login failed';
+          errEl.hidden = false;
+          btn.disabled = false;
+          btn.textContent = 'Sign In';
+          return;
+        }
+
+        window.location.href = '/';
+      } catch {
+        errEl.textContent = 'Network error — please try again.';
+        errEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>

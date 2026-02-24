@@ -1,24 +1,6 @@
-/* ── State (persisted in localStorage) ──────────────────────────────────────── */
+/* ── State (loaded from server, not localStorage) ───────────────────────────── */
 
-const INITIAL_BALANCE = 10000;
-
-function loadState() {
-  try {
-    const saved = localStorage.getItem('sm_state');
-    if (saved) return JSON.parse(saved);
-  } catch (_) {}
-  return {
-    balance: INITIAL_BALANCE,
-    portfolio: {},   // { AAPL: { shares: 5, avgCost: 178.50 }, ... }
-    transactions: [],
-  };
-}
-
-function saveState(state) {
-  localStorage.setItem('sm_state', JSON.stringify(state));
-}
-
-let state = loadState();
+let state = { username: '', balance: 0, portfolio: {}, transactions: [] };
 let currentStocks = [];
 let selectedSymbol = null;
 
@@ -40,11 +22,50 @@ function showToast(msg, type = 'success') {
   el._timer = setTimeout(() => { el.className = 'toast'; }, 3000);
 }
 
+/* ── Auth ────────────────────────────────────────────────────────────────────── */
+
+async function refreshUserState() {
+  const res = await fetch('/api/auth/me');
+  if (res.status === 401) { window.location.href = '/login'; return; }
+  const data = await res.json();
+  state.balance = data.balance;
+  state.portfolio = data.portfolio;
+  state.transactions = data.transactions;
+}
+
+async function init() {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    const data = await res.json();
+    state = {
+      username: data.username,
+      balance: data.balance,
+      portfolio: data.portfolio,
+      transactions: data.transactions,
+    };
+    document.getElementById('username-display').textContent = data.username;
+    fetchStocks();
+    setInterval(fetchStocks, 5000);
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    console.error('Init failed:', e);
+    window.location.href = '/login';
+  }
+}
+
+document.getElementById('btn-logout').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login';
+});
+
 /* ── Fetch stocks from server ────────────────────────────────────────────────── */
 
 async function fetchStocks() {
   try {
     const res = await fetch('/api/stocks');
+    if (res.status === 401) { window.location.href = '/login'; return; }
     currentStocks = await res.json();
     renderMarket();
     updateTradePanel();
@@ -53,10 +74,6 @@ async function fetchStocks() {
     console.error('Failed to fetch stocks:', e);
   }
 }
-
-// Poll every 5 seconds to keep prices fresh
-setInterval(fetchStocks, 5000);
-fetchStocks();
 
 /* ── Render Market ───────────────────────────────────────────────────────────── */
 
@@ -88,7 +105,6 @@ function renderMarket() {
     grid.appendChild(card);
   });
 
-  // update balance display
   document.getElementById('balance').textContent = fmt(state.balance);
 }
 
@@ -139,35 +155,12 @@ document.getElementById('btn-buy').addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) { showToast(data.error, 'error'); return; }
 
-    if (data.total > state.balance) {
-      showToast(`Insufficient funds. Need ${fmt(data.total)}, have ${fmt(state.balance)}.`, 'error');
-      return;
-    }
-
-    // Update state
-    state.balance = parseFloat((state.balance - data.total).toFixed(2));
-    if (!state.portfolio[data.symbol]) {
-      state.portfolio[data.symbol] = { shares: 0, avgCost: 0 };
-    }
-    const holding = state.portfolio[data.symbol];
-    const prevValue = holding.shares * holding.avgCost;
-    holding.shares += data.quantity;
-    holding.avgCost = parseFloat(((prevValue + data.total) / holding.shares).toFixed(2));
-
-    state.transactions.unshift({
-      time: new Date().toISOString(),
-      type: 'BUY',
-      symbol: data.symbol,
-      qty: data.quantity,
-      price: data.price,
-      total: data.total,
-    });
-
-    saveState(state);
+    await refreshUserState();
     showToast(`Bought ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
     await fetchStocks();
     renderPortfolio();
     renderTransactions();
+    updateTradePanel();
   } catch (e) {
     showToast('Transaction failed. Try again.', 'error');
   }
@@ -179,12 +172,6 @@ document.getElementById('btn-sell').addEventListener('click', async () => {
   const qty = parseInt(document.getElementById('qty-input').value, 10);
   if (!qty || qty < 1) { showToast('Enter a valid quantity.', 'error'); return; }
 
-  const holding = state.portfolio[selectedSymbol];
-  if (!holding || holding.shares < qty) {
-    showToast(`You only own ${holding?.shares || 0} share(s) of ${selectedSymbol}.`, 'error');
-    return;
-  }
-
   try {
     const res = await fetch('/api/sell', {
       method: 'POST',
@@ -194,25 +181,12 @@ document.getElementById('btn-sell').addEventListener('click', async () => {
     const data = await res.json();
     if (!res.ok) { showToast(data.error, 'error'); return; }
 
-    // Update state
-    state.balance = parseFloat((state.balance + data.total).toFixed(2));
-    holding.shares -= data.quantity;
-    if (holding.shares === 0) delete state.portfolio[data.symbol];
-
-    state.transactions.unshift({
-      time: new Date().toISOString(),
-      type: 'SELL',
-      symbol: data.symbol,
-      qty: data.quantity,
-      price: data.price,
-      total: data.total,
-    });
-
-    saveState(state);
+    await refreshUserState();
     showToast(`Sold ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
     await fetchStocks();
     renderPortfolio();
     renderTransactions();
+    updateTradePanel();
   } catch (e) {
     showToast('Transaction failed. Try again.', 'error');
   }
@@ -284,7 +258,7 @@ function renderTransactions() {
   empty.style.display = 'none';
   body.innerHTML = '';
 
-  state.transactions.slice(0, 50).forEach((tx) => {
+  state.transactions.forEach((tx) => {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${fmtTime(tx.time)}</td>
@@ -298,6 +272,6 @@ function renderTransactions() {
   });
 }
 
-// Initial renders
-renderPortfolio();
-renderTransactions();
+/* ── Boot ────────────────────────────────────────────────────────────────────── */
+
+init();

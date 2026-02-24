@@ -1,1 +1,6 @@
 node_modules/
+
+# SQLite database files (contain user data — never commit these)
+*.db
+*.db-shm
+*.db-wal

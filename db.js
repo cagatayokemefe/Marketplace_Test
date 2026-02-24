@@ -33,6 +33,13 @@ db.exec(`
     total     REAL    NOT NULL,
     timestamp TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
+
+  CREATE TABLE IF NOT EXISTS favorites (
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    symbol   TEXT    NOT NULL,
+    added_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    PRIMARY KEY (user_id, symbol)
+  );
 `);
 
 module.exports = db;

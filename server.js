@@ -76,20 +76,26 @@ function requireAuth(req, res, next) {
 // ── In-memory stock prices ────────────────────────────────────────────────────
 
 const stocks = {
-  AAPL: {
-    symbol: "AAPL",
-    name: "Apple Inc.",
-    price: 0,
-    previousClose: 0,
-    description: "Technology company known for iPhone, Mac, and services.",
-  },
-  TSLA: {
-    symbol: "TSLA",
-    name: "Tesla Inc.",
-    price: 0,
-    previousClose: 0,
-    description: "Electric vehicle and clean energy company.",
-  },
+  AAPL: { symbol: 'AAPL', name: 'Apple Inc.',              price: 0, previousClose: 0, description: 'Technology company known for iPhone, Mac, and services.' },
+  TSLA: { symbol: 'TSLA', name: 'Tesla Inc.',              price: 0, previousClose: 0, description: 'Electric vehicle and clean energy company.' },
+  MSFT: { symbol: 'MSFT', name: 'Microsoft Corp.',         price: 0, previousClose: 0, description: 'Cloud computing, Windows, Office, and Xbox.' },
+  GOOGL: { symbol: 'GOOGL', name: 'Alphabet Inc.',         price: 0, previousClose: 0, description: 'Google Search, YouTube, and Google Cloud.' },
+  AMZN: { symbol: 'AMZN', name: 'Amazon.com Inc.',         price: 0, previousClose: 0, description: 'E-commerce, AWS cloud, and Prime Video.' },
+  META: { symbol: 'META', name: 'Meta Platforms',          price: 0, previousClose: 0, description: 'Facebook, Instagram, WhatsApp, and Reality Labs.' },
+  NVDA: { symbol: 'NVDA', name: 'NVIDIA Corp.',            price: 0, previousClose: 0, description: 'GPUs, AI chips, and data center hardware.' },
+  NFLX: { symbol: 'NFLX', name: 'Netflix Inc.',            price: 0, previousClose: 0, description: 'Global streaming entertainment service.' },
+  AMD:  { symbol: 'AMD',  name: 'Advanced Micro Devices',  price: 0, previousClose: 0, description: 'CPUs, GPUs, and semiconductor solutions.' },
+  INTC: { symbol: 'INTC', name: 'Intel Corp.',             price: 0, previousClose: 0, description: 'Semiconductor chips, processors, and networking.' },
+  BABA: { symbol: 'BABA', name: 'Alibaba Group',           price: 0, previousClose: 0, description: 'Chinese e-commerce, cloud, and fintech.' },
+  DIS:  { symbol: 'DIS',  name: 'The Walt Disney Co.',     price: 0, previousClose: 0, description: 'Media, theme parks, Disney+, and ESPN.' },
+  UBER: { symbol: 'UBER', name: 'Uber Technologies',       price: 0, previousClose: 0, description: 'Ride-hailing, food delivery, and freight.' },
+  SPOT: { symbol: 'SPOT', name: 'Spotify Technology',      price: 0, previousClose: 0, description: 'Music and podcast streaming platform.' },
+  PYPL: { symbol: 'PYPL', name: 'PayPal Holdings',         price: 0, previousClose: 0, description: 'Online payments, Venmo, and digital wallets.' },
+  SHOP: { symbol: 'SHOP', name: 'Shopify Inc.',            price: 0, previousClose: 0, description: 'E-commerce platform for merchants worldwide.' },
+  COIN: { symbol: 'COIN', name: 'Coinbase Global',         price: 0, previousClose: 0, description: 'Cryptocurrency exchange and wallet services.' },
+  SNAP: { symbol: 'SNAP', name: 'Snap Inc.',               price: 0, previousClose: 0, description: 'Snapchat social media and AR technology.' },
+  PLTR: { symbol: 'PLTR', name: 'Palantir Technologies',   price: 0, previousClose: 0, description: 'AI-powered data analytics for enterprise and government.' },
+  RIVN: { symbol: 'RIVN', name: 'Rivian Automotive',       price: 0, previousClose: 0, description: 'Electric trucks, vans, and adventure vehicles.' },
 };
 
 async function fetchRealPrices() {
@@ -124,6 +130,14 @@ app.get("/login", (req, res) => {
 app.get("/register", (req, res) => {
   if (req.session && req.session.userId) return res.redirect("/");
   res.sendFile(path.join(__dirname, "public", "register.html"));
+});
+
+app.get("/profile", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "profile.html"));
+});
+
+app.get("/settings", requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "settings.html"));
 });
 
 // ── Auth API routes ───────────────────────────────────────────────────────────
@@ -242,7 +256,7 @@ app.post("/api/auth/logout", (req, res) => {
 
 app.get("/api/auth/me", requireAuth, (req, res) => {
   const user = db
-    .prepare("SELECT id, username, balance FROM users WHERE id = ?")
+    .prepare("SELECT id, username, balance, created_at FROM users WHERE id = ?")
     .get(req.session.userId);
 
   if (!user) {
@@ -258,6 +272,9 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
       "SELECT type, symbol, quantity, price, total, timestamp FROM transactions WHERE user_id = ? ORDER BY timestamp DESC LIMIT 50",
     )
     .all(req.session.userId);
+  const favRows = db
+    .prepare("SELECT symbol FROM favorites WHERE user_id = ? ORDER BY added_at ASC")
+    .all(req.session.userId);
 
   const portfolio = {};
   holdingsRows.forEach((h) => {
@@ -267,7 +284,9 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
   res.json({
     username: user.username,
     balance: user.balance,
+    createdAt: user.created_at,
     portfolio,
+    favorites: favRows.map((f) => f.symbol),
     transactions: txRows.map((tx) => ({
       time: tx.timestamp,
       type: tx.type,
@@ -277,6 +296,33 @@ app.get("/api/auth/me", requireAuth, (req, res) => {
       total: tx.total,
     })),
   });
+});
+
+// ── Favorites routes ──────────────────────────────────────────────────────────
+
+app.get("/api/favorites", requireAuth, (req, res) => {
+  const rows = db
+    .prepare("SELECT symbol FROM favorites WHERE user_id = ? ORDER BY added_at ASC")
+    .all(req.session.userId);
+  res.json(rows.map((r) => r.symbol));
+});
+
+app.post("/api/favorites", requireAuth, (req, res) => {
+  const sym = (req.body.symbol || "").toUpperCase();
+  if (!stocks[sym]) return res.status(400).json({ error: "Invalid symbol" });
+  try {
+    db.prepare("INSERT OR IGNORE INTO favorites (user_id, symbol) VALUES (?, ?)").run(req.session.userId, sym);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("Favorite add error:", err);
+    res.status(500).json({ error: "Failed to add favorite" });
+  }
+});
+
+app.delete("/api/favorites/:symbol", requireAuth, (req, res) => {
+  const sym = req.params.symbol.toUpperCase();
+  db.prepare("DELETE FROM favorites WHERE user_id = ? AND symbol = ?").run(req.session.userId, sym);
+  res.json({ ok: true });
 });
 
 // ── Stock routes ──────────────────────────────────────────────────────────────

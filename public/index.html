@@ -1,100 +1,139 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Stock Marketplace</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <header class="header">
-    <div class="header-inner">
-      <h1>Stock Marketplace</h1>
-      <div class="wallet">
-        <span class="wallet-label">Cash Balance</span>
-        <span class="wallet-amount" id="balance">—</span>
-      </div>
-      <div class="user-info">
-        <span id="username-display" class="username-display"></span>
-        <button id="btn-logout" class="btn-logout">Logout</button>
-      </div>
-    </div>
-  </header>
-
-  <main class="container">
-
-    <!-- ── Market ── -->
-    <section class="card" id="section-market">
-      <h2>Market <span class="live-badge">LIVE</span></h2>
-      <div class="stocks-grid" id="stocks-grid">
-        <!-- populated by JS -->
-      </div>
-    </section>
-
-    <!-- ── Trade Panel ── -->
-    <section class="card" id="section-trade" style="display:none">
-      <h2>Trade <span id="trade-symbol-title"></span></h2>
-      <div class="trade-panel">
-        <div class="trade-info">
-          <p>Current Price: <strong id="trade-price">-</strong></p>
-          <p>You own: <strong id="trade-owned">0</strong> shares</p>
-        </div>
-        <div class="trade-form">
-          <label for="qty-input">Quantity</label>
-          <input type="number" id="qty-input" min="1" value="1" />
-          <p class="trade-cost">Total cost: <strong id="trade-cost">-</strong></p>
-          <div class="trade-buttons">
-            <button class="btn btn-buy" id="btn-buy">Buy</button>
-            <button class="btn btn-sell" id="btn-sell">Sell</button>
-            <button class="btn btn-cancel" id="btn-cancel">Cancel</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stock Marketplace</title>
+    <script>
+      (function () {
+        const t = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <h1>Stock Marketplace</h1>
+        <div class="user-info">
+          <div class="user-menu">
+            <button class="user-menu-trigger" id="username-display"></button>
+            <div class="user-dropdown">
+              <a href="/profile" class="dropdown-item">Wallet</a>
+              <a href="/settings" class="dropdown-item">Settings</a>
+            </div>
+          </div>
+          <button id="btn-logout" class="btn-logout">Logout</button>
+          <div class="wallet">
+            <span class="wallet-label">Cash Balance</span>
+            <span class="wallet-amount" id="balance">—</span>
           </div>
         </div>
       </div>
-    </section>
+    </header>
 
-    <!-- ── Portfolio ── -->
-    <section class="card">
-      <h2>My Portfolio</h2>
-      <div id="portfolio-empty" class="empty-state">No holdings yet. Buy some stocks!</div>
-      <table class="portfolio-table" id="portfolio-table" style="display:none">
-        <thead>
-          <tr>
-            <th>Symbol</th>
-            <th>Name</th>
-            <th>Shares</th>
-            <th>Avg Cost</th>
-            <th>Current Price</th>
-            <th>Market Value</th>
-            <th>Gain / Loss</th>
-          </tr>
-        </thead>
-        <tbody id="portfolio-body"></tbody>
-        <tfoot>
-          <tr>
-            <td colspan="5" class="total-label">Portfolio Value</td>
-            <td id="portfolio-value" colspan="2">$0.00</td>
-          </tr>
-        </tfoot>
-      </table>
-    </section>
+    <main class="container">
+      <!-- ── Favorites ── -->
+      <section class="card" id="section-favorites" style="display: none">
+        <h2>&#9733; Favorites</h2>
+        <div class="stocks-grid" id="favorites-grid"></div>
+      </section>
 
-    <!-- ── Transaction History ── -->
-    <section class="card">
-      <h2>Transaction History</h2>
-      <div id="tx-empty" class="empty-state">No transactions yet.</div>
-      <table class="tx-table" id="tx-table" style="display:none">
-        <thead>
-          <tr><th>Time</th><th>Type</th><th>Symbol</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-        </thead>
-        <tbody id="tx-body"></tbody>
-      </table>
-    </section>
+      <!-- ── Market ── -->
+      <section class="card" id="section-market">
+        <h2>Market <span class="live-badge">LIVE</span></h2>
+        <div class="market-controls">
+          <input
+            type="text"
+            id="search-input"
+            class="search-input"
+            placeholder="Search stocks by name or symbol&#x2026;"
+          />
+        </div>
+        <div class="stocks-list" id="stocks-grid">
+          <!-- populated by JS -->
+        </div>
+      </section>
 
-  </main>
+      <!-- ── Trade Panel ── -->
+      <section class="card" id="section-trade" style="display: none">
+        <h2>Trade <span id="trade-symbol-title"></span></h2>
+        <div class="trade-panel">
+          <div class="trade-info">
+            <p>Current Price: <strong id="trade-price">-</strong></p>
+            <p>You own: <strong id="trade-owned">0</strong> shares</p>
+          </div>
+          <div class="trade-form">
+            <label for="qty-input">Quantity</label>
+            <input type="number" id="qty-input" min="1" value="1" />
+            <p class="trade-cost">
+              Total cost: <strong id="trade-cost">-</strong>
+            </p>
+            <div class="trade-buttons">
+              <button class="btn btn-buy" id="btn-buy">Buy</button>
+              <button class="btn btn-sell" id="btn-sell">Sell</button>
+              <button class="btn btn-cancel" id="btn-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </section>
 
-  <!-- ── Toast ── -->
-  <div class="toast" id="toast"></div>
+      <!-- ── Portfolio ── -->
+      <section class="card">
+        <h2>My Portfolio</h2>
+        <div id="portfolio-empty" class="empty-state">
+          No holdings yet. Buy some stocks!
+        </div>
+        <table
+          class="portfolio-table"
+          id="portfolio-table"
+          style="display: none"
+        >
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Name</th>
+              <th>Shares</th>
+              <th>Avg Cost</th>
+              <th>Current Price</th>
+              <th>Market Value</th>
+              <th>Gain / Loss</th>
+            </tr>
+          </thead>
+          <tbody id="portfolio-body"></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5" class="total-label">Portfolio Value</td>
+              <td id="portfolio-value" colspan="2">$0.00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
 
-  <script src="app.js"></script>
-</body>
+      <!-- ── Transaction History ── -->
+      <section class="card">
+        <h2>Transaction History</h2>
+        <div id="tx-empty" class="empty-state">No transactions yet.</div>
+        <table class="tx-table" id="tx-table" style="display: none">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="tx-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <!-- ── Toast ── -->
+    <div class="toast" id="toast"></div>
+
+    <script src="app.js"></script>
+  </body>
 </html>

@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profile — Stock Marketplace</title>
+    <script>
+      (function () {
+        const t = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <h1>
+          <a href="/" style="color: inherit; text-decoration: none"
+            >&#8592; Stock Marketplace</a
+          >
+        </h1>
+        <div class="user-info">
+          <div class="user-menu">
+            <button class="user-menu-trigger" id="username-display"></button>
+            <div class="user-dropdown">
+              <a href="/profile" class="dropdown-item">Wallet</a>
+              <a href="/settings" class="dropdown-item">Settings</a>
+            </div>
+          </div>
+          <button id="btn-logout" class="btn-logout">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- ── User Info ── -->
+      <section class="card">
+        <h2>Account</h2>
+        <div class="stats-row">
+          <div>
+            <div class="profile-stat" id="profile-username">—</div>
+            <div class="profile-stat-label">Username</div>
+          </div>
+          <div>
+            <div class="profile-stat" id="profile-balance">—</div>
+            <div class="profile-stat-label">Cash Balance</div>
+          </div>
+          <div>
+            <div class="profile-stat" id="profile-since">—</div>
+            <div class="profile-stat-label">Member Since</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Portfolio Summary ── -->
+      <section class="card">
+        <h2>Portfolio</h2>
+        <div id="profile-portfolio-empty" class="empty-state">
+          No holdings yet.
+        </div>
+        <table
+          class="portfolio-table"
+          id="profile-portfolio-table"
+          style="display: none"
+        >
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th>Name</th>
+              <th>Shares</th>
+              <th>Avg Cost</th>
+              <th>Current Price</th>
+              <th>Market Value</th>
+              <th>Gain / Loss</th>
+            </tr>
+          </thead>
+          <tbody id="profile-portfolio-body"></tbody>
+          <tfoot>
+            <tr>
+              <td colspan="5" class="total-label">Total Portfolio Value</td>
+              <td colspan="2" id="profile-portfolio-value">$0.00</td>
+            </tr>
+          </tfoot>
+        </table>
+      </section>
+
+      <!-- ── Transaction History ── -->
+      <section class="card">
+        <h2>Transaction History</h2>
+        <div class="filter-tabs">
+          <button class="filter-tab active" data-filter="ALL">All</button>
+          <button class="filter-tab" data-filter="BUY">Buy</button>
+          <button class="filter-tab" data-filter="SELL">Sell</button>
+        </div>
+        <div id="profile-tx-empty" class="empty-state">
+          No transactions yet.
+        </div>
+        <table class="tx-table" id="profile-tx-table" style="display: none">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Type</th>
+              <th>Symbol</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="profile-tx-body"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      function fmt(n) {
+        return new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(n);
+      }
+
+      function fmtDate(iso) {
+        return new Date(iso).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      function fmtDateTime(iso) {
+        const d = new Date(iso);
+        return (
+          d.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          }) +
+          " " +
+          d.toLocaleTimeString()
+        );
+      }
+
+      let allTransactions = [];
+      let activeFilter = "ALL";
+
+      function renderTransactions(filter) {
+        const body = document.getElementById("profile-tx-body");
+        const table = document.getElementById("profile-tx-table");
+        const empty = document.getElementById("profile-tx-empty");
+
+        const list =
+          filter === "ALL"
+            ? allTransactions
+            : allTransactions.filter((tx) => tx.type === filter);
+
+        if (list.length === 0) {
+          table.style.display = "none";
+          empty.style.display = "";
+          return;
+        }
+
+        table.style.display = "";
+        empty.style.display = "none";
+        body.innerHTML = "";
+
+        list.forEach((tx) => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+          <td>${fmtDateTime(tx.time)}</td>
+          <td class="${tx.type === "BUY" ? "tx-buy" : "tx-sell"}">${tx.type}</td>
+          <td>${tx.symbol}</td>
+          <td>${tx.qty}</td>
+          <td>${fmt(tx.price)}</td>
+          <td>${fmt(tx.total)}</td>
+        `;
+          body.appendChild(tr);
+        });
+      }
+
+      document.querySelectorAll(".filter-tab").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll(".filter-tab")
+            .forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          activeFilter = btn.dataset.filter;
+          renderTransactions(activeFilter);
+        });
+      });
+
+      document
+        .getElementById("btn-logout")
+        .addEventListener("click", async () => {
+          await fetch("/api/auth/logout", { method: "POST" });
+          window.location.href = "/login";
+        });
+
+      async function loadProfile() {
+        const [meRes, stocksRes] = await Promise.all([
+          fetch("/api/auth/me"),
+          fetch("/api/stocks"),
+        ]);
+
+        if (meRes.status === 401) {
+          window.location.href = "/login";
+          return;
+        }
+
+        const data = await meRes.json();
+        const stocks = await stocksRes.json();
+        const stockMap = {};
+        stocks.forEach((s) => {
+          stockMap[s.symbol] = s;
+        });
+
+        // Header
+        document.getElementById("username-display").textContent = data.username;
+
+        // Account stats
+        document.getElementById("profile-username").textContent = data.username;
+        document.getElementById("profile-balance").textContent = fmt(
+          data.balance,
+        );
+        document.getElementById("profile-since").textContent = data.createdAt
+          ? fmtDate(data.createdAt)
+          : "—";
+
+        // Portfolio
+        const symbols = Object.keys(data.portfolio || {});
+        const portfolioEmpty = document.getElementById(
+          "profile-portfolio-empty",
+        );
+        const portfolioTable = document.getElementById(
+          "profile-portfolio-table",
+        );
+        const portfolioBody = document.getElementById("profile-portfolio-body");
+
+        if (symbols.length === 0) {
+          portfolioEmpty.style.display = "";
+          portfolioTable.style.display = "none";
+        } else {
+          portfolioEmpty.style.display = "none";
+          portfolioTable.style.display = "";
+
+          let totalValue = 0;
+          symbols.forEach((sym) => {
+            const holding = data.portfolio[sym];
+            const stock = stockMap[sym];
+            const currentPrice = stock ? stock.price : holding.avgCost;
+            const marketValue = parseFloat(
+              (holding.shares * currentPrice).toFixed(2),
+            );
+            const costBasis = parseFloat(
+              (holding.shares * holding.avgCost).toFixed(2),
+            );
+            const gain = parseFloat((marketValue - costBasis).toFixed(2));
+            const gainPct =
+              costBasis > 0
+                ? parseFloat(((gain / costBasis) * 100).toFixed(2))
+                : 0;
+            totalValue += marketValue;
+
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+            <td>${sym}</td>
+            <td>${stock ? stock.name : sym}</td>
+            <td>${holding.shares}</td>
+            <td>${fmt(holding.avgCost)}</td>
+            <td>${fmt(currentPrice)}</td>
+            <td>${fmt(marketValue)}</td>
+            <td class="${gain >= 0 ? "gain-pos" : "gain-neg"}">
+              ${gain >= 0 ? "+" : ""}${fmt(gain)} (${gain >= 0 ? "+" : ""}${gainPct}%)
+            </td>
+          `;
+            portfolioBody.appendChild(tr);
+          });
+
+          document.getElementById("profile-portfolio-value").textContent =
+            fmt(totalValue);
+        }
+
+        // Transactions
+        allTransactions = data.transactions || [];
+        renderTransactions(activeFilter);
+      }
+
+      loadProfile();
+    </script>
+  </body>
+</html>

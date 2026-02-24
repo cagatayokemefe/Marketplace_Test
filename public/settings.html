@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings — Stock Marketplace</title>
+    <script>
+      (function () {
+        const t = localStorage.getItem("theme") || "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-inner">
+        <h1>
+          <a href="/" style="color: inherit; text-decoration: none">&#8592; Stock Marketplace</a>
+        </h1>
+        <div class="user-info">
+          <div class="user-menu">
+            <button class="user-menu-trigger" id="username-display"></button>
+            <div class="user-dropdown">
+              <a href="/profile" class="dropdown-item">Wallet</a>
+              <a href="/settings" class="dropdown-item">Settings</a>
+            </div>
+          </div>
+          <button id="btn-logout" class="btn-logout">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+
+      <!-- ── Appearance ── -->
+      <section class="card">
+        <h2>Appearance</h2>
+        <div class="settings-group">
+          <div class="settings-label">
+            <span>Theme</span>
+            <span class="settings-desc">Switch between dark and light mode</span>
+          </div>
+          <div class="theme-toggle-wrap">
+            <span class="theme-icon" id="icon-moon">&#9789;</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="theme-toggle" />
+              <span class="toggle-track">
+                <span class="toggle-knob"></span>
+              </span>
+            </label>
+            <span class="theme-icon" id="icon-sun">&#9728;</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Market ── -->
+      <section class="card">
+        <h2>Market</h2>
+        <div class="settings-group">
+          <div class="settings-label">
+            <span>Auto-refresh prices</span>
+            <span class="settings-desc">Automatically update stock prices every 5 seconds on the main page</span>
+          </div>
+          <label class="toggle-switch">
+            <input type="checkbox" id="refresh-toggle" />
+            <span class="toggle-track">
+              <span class="toggle-knob"></span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+    </main>
+
+    <script>
+      const themeToggle = document.getElementById("theme-toggle");
+      const refreshToggle = document.getElementById("refresh-toggle");
+
+      function setTheme(t) {
+        localStorage.setItem("theme", t);
+        document.documentElement.setAttribute("data-theme", t);
+        syncToggles();
+      }
+
+      function setRefresh(on) {
+        localStorage.setItem("autoRefresh", on ? "true" : "false");
+        syncToggles();
+      }
+
+      function syncToggles() {
+        const theme = localStorage.getItem("theme") || "dark";
+        const refresh = localStorage.getItem("autoRefresh") !== "false";
+
+        themeToggle.checked = theme === "light";
+        refreshToggle.checked = refresh;
+
+        document.getElementById("icon-moon").classList.toggle("active", theme === "dark");
+        document.getElementById("icon-sun").classList.toggle("active", theme === "light");
+      }
+
+      themeToggle.addEventListener("change", function () {
+        setTheme(this.checked ? "light" : "dark");
+      });
+
+      refreshToggle.addEventListener("change", function () {
+        setRefresh(this.checked);
+      });
+
+      document.getElementById("btn-logout").addEventListener("click", async function () {
+        await fetch("/api/auth/logout", { method: "POST" });
+        window.location.href = "/login";
+      });
+
+      async function loadSettings() {
+        const res = await fetch("/api/auth/me");
+        if (res.status === 401) { window.location.href = "/login"; return; }
+        const data = await res.json();
+        document.getElementById("username-display").textContent = data.username;
+      }
+
+      syncToggles();
+      loadSettings();
+    </script>
+  </body>
+</html>

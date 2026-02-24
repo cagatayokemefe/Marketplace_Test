@@ -1,20 +1,26 @@
 /* ── Reset & Base ──────────────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 :root {
-  --bg:       #0f1117;
-  --surface:  #1a1d27;
-  --border:   #2a2d3a;
-  --accent:   #4f8ef7;
-  --green:    #22c55e;
-  --red:      #ef4444;
-  --text:     #e2e8f0;
-  --muted:    #94a3b8;
-  --radius:   12px;
+  --bg: #0f1117;
+  --surface: #1a1d27;
+  --border: #2a2d3a;
+  --accent: #4f8ef7;
+  --green: #22c55e;
+  --red: #ef4444;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --radius: 12px;
 }
 
 body {
-  font-family: 'Segoe UI', system-ui, sans-serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
@@ -51,8 +57,17 @@ body {
   gap: 2px;
 }
 
-.wallet-label { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.wallet-amount { font-size: 1.2rem; font-weight: 700; color: var(--green); }
+.wallet-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.wallet-amount {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--green);
+}
 
 /* ── Layout ──────────────────────────────────────────────────────────────────── */
 .container {
@@ -93,8 +108,13 @@ body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* ── Stock Cards ─────────────────────────────────────────────────────────────── */
@@ -110,7 +130,9 @@ body {
   border-radius: var(--radius);
   padding: 20px;
   cursor: pointer;
-  transition: border-color 0.2s, transform 0.15s;
+  transition:
+    border-color 0.2s,
+    transform 0.15s;
 }
 
 .stock-card:hover {
@@ -118,7 +140,9 @@ body {
   transform: translateY(-2px);
 }
 
-.stock-card.selected { border-color: var(--accent); }
+.stock-card.selected {
+  border-color: var(--accent);
+}
 
 .stock-header {
   display: flex;
@@ -127,10 +151,20 @@ body {
   margin-bottom: 12px;
 }
 
-.stock-symbol { font-size: 1.3rem; font-weight: 700; }
-.stock-name   { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.stock-symbol {
+  font-size: 1.3rem;
+  font-weight: 700;
+}
+.stock-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
 
-.stock-price  { font-size: 1.5rem; font-weight: 700; }
+.stock-price {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
 
 .stock-change {
   font-size: 0.82rem;
@@ -140,10 +174,21 @@ body {
   margin-top: 4px;
   display: inline-block;
 }
-.stock-change.positive { background: rgba(34,197,94,0.15); color: var(--green); }
-.stock-change.negative { background: rgba(239,68,68,0.15);  color: var(--red); }
+.stock-change.positive {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--green);
+}
+.stock-change.negative {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--red);
+}
 
-.stock-desc { font-size: 0.78rem; color: var(--muted); margin-top: 12px; line-height: 1.5; }
+.stock-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 12px;
+  line-height: 1.5;
+}
 
 .btn-trade {
   margin-top: 16px;
@@ -158,7 +203,9 @@ body {
   cursor: pointer;
   transition: opacity 0.2s;
 }
-.btn-trade:hover { opacity: 0.85; }
+.btn-trade:hover {
+  opacity: 0.85;
+}
 
 /* ── Trade Panel ─────────────────────────────────────────────────────────────── */
 .trade-panel {
@@ -167,13 +214,28 @@ body {
   flex-wrap: wrap;
 }
 
-.trade-info { min-width: 160px; }
-.trade-info p { margin-bottom: 8px; color: var(--muted); font-size: 0.9rem; }
-.trade-info strong { color: var(--text); }
+.trade-info {
+  min-width: 160px;
+}
+.trade-info p {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.trade-info strong {
+  color: var(--text);
+}
 
-.trade-form { display: flex; flex-direction: column; gap: 12px; }
+.trade-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-.trade-form label { font-size: 0.82rem; color: var(--muted); }
+.trade-form label {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
 
 .trade-form input[type="number"] {
   width: 160px;
@@ -186,11 +248,20 @@ body {
   outline: none;
   transition: border-color 0.2s;
 }
-.trade-form input[type="number"]:focus { border-color: var(--accent); }
+.trade-form input[type="number"]:focus {
+  border-color: var(--accent);
+}
 
-.trade-cost { font-size: 0.85rem; color: var(--muted); }
+.trade-cost {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
 
-.trade-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+.trade-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 .btn {
   padding: 10px 22px;
@@ -201,11 +272,22 @@ body {
   cursor: pointer;
   transition: opacity 0.2s;
 }
-.btn:hover { opacity: 0.85; }
+.btn:hover {
+  opacity: 0.85;
+}
 
-.btn-buy    { background: var(--green); color: #000; }
-.btn-sell   { background: var(--red);   color: #fff; }
-.btn-cancel { background: var(--border); color: var(--text); }
+.btn-buy {
+  background: var(--green);
+  color: #000;
+}
+.btn-sell {
+  background: var(--red);
+  color: #fff;
+}
+.btn-cancel {
+  background: var(--border);
+  color: var(--text);
+}
 
 /* ── Portfolio Table ────────────────────────────────────────────────────────── */
 .portfolio-table,
@@ -227,19 +309,44 @@ body {
 .portfolio-table th:first-child,
 .portfolio-table td:first-child,
 .tx-table th:first-child,
-.tx-table td:first-child { text-align: left; }
+.tx-table td:first-child {
+  text-align: left;
+}
 
 .portfolio-table th,
-.tx-table th { color: var(--muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
+.tx-table th {
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+}
 
-.total-label { text-align: right; color: var(--muted); font-weight: 600; }
-tfoot td { font-weight: 700; font-size: 1rem; }
+.total-label {
+  text-align: right;
+  color: var(--muted);
+  font-weight: 600;
+}
+tfoot td {
+  font-weight: 700;
+  font-size: 1rem;
+}
 
-.gain-pos { color: var(--green); }
-.gain-neg { color: var(--red); }
+.gain-pos {
+  color: var(--green);
+}
+.gain-neg {
+  color: var(--red);
+}
 
-.tx-buy  { color: var(--green); font-weight: 600; }
-.tx-sell { color: var(--red);   font-weight: 600; }
+.tx-buy {
+  color: var(--green);
+  font-weight: 600;
+}
+.tx-sell {
+  color: var(--red);
+  font-weight: 600;
+}
 
 /* ── Empty State ─────────────────────────────────────────────────────────────── */
 .empty-state {
@@ -262,13 +369,24 @@ tfoot td { font-weight: 700; font-size: 1rem; }
   max-width: 320px;
   opacity: 0;
   transform: translateY(12px);
-  transition: opacity 0.3s, transform 0.3s;
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
   pointer-events: none;
   z-index: 999;
 }
-.toast.show { opacity: 1; transform: translateY(0); }
-.toast.success { border-color: var(--green); color: var(--green); }
-.toast.error   { border-color: var(--red);   color: var(--red); }
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+.toast.success {
+  border-color: var(--green);
+  color: var(--green);
+}
+.toast.error {
+  border-color: var(--red);
+  color: var(--red);
+}
 
 /* ── Auth Pages ──────────────────────────────────────────────────────────────── */
 .auth-container {
@@ -316,7 +434,9 @@ tfoot td { font-weight: 700; font-size: 1rem; }
   transition: border-color 0.2s;
 }
 
-.form-group input:focus { border-color: var(--accent); }
+.form-group input:focus {
+  border-color: var(--accent);
+}
 
 .field-hint {
   font-size: 0.73rem;
@@ -340,8 +460,13 @@ tfoot td { font-weight: 700; font-size: 1rem; }
   transition: opacity 0.2s;
 }
 
-.btn-full:hover    { opacity: 0.88; }
-.btn-full:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-full:hover {
+  opacity: 0.88;
+}
+.btn-full:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 
 .auth-error {
   background: rgba(239, 68, 68, 0.1);
@@ -365,9 +490,13 @@ tfoot td { font-weight: 700; font-size: 1rem; }
   text-decoration: none;
 }
 
-.auth-footer a:hover { text-decoration: underline; }
+.auth-footer a:hover {
+  text-decoration: underline;
+}
 
-.logo { color: var(--accent); }
+.logo {
+  color: var(--accent);
+}
 
 /* ── Header User Info ────────────────────────────────────────────────────────── */
 .user-info {
@@ -389,10 +518,390 @@ tfoot td { font-weight: 700; font-size: 1rem; }
   font-size: 0.82rem;
   border-radius: 6px;
   cursor: pointer;
-  transition: border-color 0.2s, color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
 }
 
 .btn-logout:hover {
   border-color: var(--red);
   color: var(--red);
+}
+
+/* ── Search Bar ──────────────────────────────────────────────────────────────── */
+.market-controls {
+  margin-bottom: 16px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.search-input:focus {
+  border-color: var(--accent);
+}
+.search-input::placeholder {
+  color: var(--muted);
+}
+
+/* ── Star / Favorite Button ──────────────────────────────────────────────────── */
+.stock-card {
+  position: relative;
+}
+
+.btn-star {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: var(--muted);
+  transition:
+    color 0.2s,
+    transform 0.15s;
+  line-height: 1;
+  padding: 0;
+}
+.btn-star:hover {
+  transform: scale(1.2);
+  color: gold;
+}
+.btn-star.starred {
+  color: gold;
+}
+
+/* ── Profile Nav Link ────────────────────────────────────────────────────────── */
+.btn-profile {
+  font-size: 0.82rem;
+  color: var(--muted);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+.btn-profile:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Profile Page ────────────────────────────────────────────────────────────── */
+.stats-row {
+  display: flex;
+  gap: 40px;
+  flex-wrap: wrap;
+}
+
+.profile-stat {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.profile-stat-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 2px;
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.filter-tab {
+  padding: 6px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
+}
+.filter-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ── Username Link ───────────────────────────────────────────────────────────── */
+.username-link {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  transition: color 0.2s;
+}
+.username-link:hover {
+  color: var(--accent);
+}
+
+/* ── Market List (compact row view) ─────────────────────────────────────────── */
+.stocks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stock-card.compact {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  /* override grid card defaults */
+  transform: none !important;
+}
+.stock-card.compact:hover {
+  border-color: var(--accent);
+}
+
+/* In compact mode, star is inline (not absolute) */
+.stock-card.compact .btn-star {
+  position: static;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.compact-symbol {
+  font-size: 0.95rem;
+  font-weight: 700;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.compact-name {
+  font-size: 0.78rem;
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-price {
+  font-size: 0.95rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.compact-change {
+  font-size: 0.75rem;
+  flex-shrink: 0;
+}
+
+/* ── Light Theme ─────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --bg: #f0f4f8;
+  --surface: #ffffff;
+  --border: #cbd5e1;
+  --accent: #2563eb;
+  --green: #16a34a;
+  --red: #dc2626;
+  --text: #1e293b;
+  --muted: #64748b;
+}
+
+/* ── User Dropdown Menu ──────────────────────────────────────────────────────── */
+.user-menu {
+  position: relative;
+}
+
+.user-menu-trigger {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s;
+}
+.user-menu-trigger:hover {
+  color: var(--accent);
+}
+.user-menu-trigger::after {
+  content: "\25BE";
+  font-size: 0.7rem;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+.user-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 148px;
+  padding: 6px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition:
+    opacity 0.18s,
+    transform 0.18s,
+    visibility 0.18s;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.user-menu:hover .user-dropdown,
+.user-menu:focus-within .user-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.dropdown-item {
+  display: block;
+  padding: 10px 14px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.88rem;
+  border-radius: 6px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.dropdown-item:hover {
+  background: var(--bg);
+  color: var(--accent);
+}
+
+/* ── Settings Page ───────────────────────────────────────────────────────────── */
+.settings-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+.settings-group + .settings-group {
+  border-top: 1px solid var(--border);
+  margin-top: 16px;
+  padding-top: 20px;
+}
+
+.settings-label > span:first-child {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.settings-desc {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.settings-options {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-option {
+  padding: 8px 22px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    color 0.2s,
+    background 0.2s;
+}
+.settings-option:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.settings-option.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ── Toggle Switch ───────────────────────────────────────────────────────────── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-track {
+  display: block;
+  width: 50px;
+  height: 27px;
+  background: var(--border);
+  border-radius: 14px;
+  position: relative;
+  transition: background 0.25s;
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 21px;
+  height: 21px;
+  background: var(--muted);
+  border-radius: 50%;
+  transition: transform 0.25s, background 0.25s;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.toggle-switch input:checked + .toggle-track {
+  background: var(--accent);
+}
+
+.toggle-switch input:checked + .toggle-track .toggle-knob {
+  transform: translateX(23px);
+  background: #fff;
+}
+
+/* ── Theme Toggle (moon / sun) ───────────────────────────────────────────────── */
+.theme-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.theme-icon {
+  font-size: 1.15rem;
+  color: var(--muted);
+  transition: color 0.25s;
+  line-height: 1;
+}
+
+.theme-icon.active {
+  color: var(--accent);
 }

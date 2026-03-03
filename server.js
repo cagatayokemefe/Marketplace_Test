@@ -325,6 +325,196 @@ app.delete("/api/favorites/:symbol", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Listings (P2P marketplace) ────────────────────────────────────────────────
+
+// GET all open listings with seller username
+app.get("/api/listings", requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT l.id, l.symbol, l.quantity, l.price_per_share, l.created_at,
+           u.username AS seller_username, l.seller_id
+    FROM listings l
+    JOIN users u ON l.seller_id = u.id
+    WHERE l.status = 'OPEN'
+    ORDER BY l.created_at DESC
+  `).all();
+  res.json(rows);
+});
+
+// POST create a sell listing — shares are deducted immediately
+app.post("/api/listings", requireAuth, (req, res) => {
+  const sym = ((req.body.symbol || "")).toUpperCase();
+  const qty = parseInt(req.body.quantity, 10);
+  const price = parseFloat(req.body.price);
+  const userId = req.session.userId;
+
+  if (!stocks[sym]) return res.status(400).json({ error: "Invalid symbol" });
+  if (!qty || qty < 1) return res.status(400).json({ error: "Quantity must be at least 1" });
+  if (!price || price <= 0) return res.status(400).json({ error: "Price must be greater than 0" });
+
+  const execute = db.transaction(() => {
+    const holding = db.prepare(
+      "SELECT shares, avg_cost FROM holdings WHERE user_id = ? AND symbol = ?"
+    ).get(userId, sym);
+
+    if (!holding || holding.shares < qty) {
+      throw Object.assign(
+        new Error(`You only own ${holding?.shares || 0} shares of ${sym}`),
+        { code: "INSUFFICIENT_SHARES" }
+      );
+    }
+
+    const avgCostSnapshot = holding.avg_cost;
+    const remaining = holding.shares - qty;
+    if (remaining === 0) {
+      db.prepare("DELETE FROM holdings WHERE user_id = ? AND symbol = ?").run(userId, sym);
+    } else {
+      db.prepare("UPDATE holdings SET shares = ? WHERE user_id = ? AND symbol = ?").run(remaining, userId, sym);
+    }
+
+    const result = db.prepare(
+      "INSERT INTO listings (seller_id, symbol, quantity, price_per_share, avg_cost_snapshot) VALUES (?, ?, ?, ?, ?)"
+    ).run(userId, sym, qty, price, avgCostSnapshot);
+
+    return { id: result.lastInsertRowid, symbol: sym, quantity: qty, price_per_share: price };
+  });
+
+  try {
+    res.status(201).json(execute());
+  } catch (err) {
+    if (err.code === "INSUFFICIENT_SHARES") return res.status(400).json({ error: err.message });
+    console.error("Create listing error:", err);
+    res.status(500).json({ error: "Failed to create listing" });
+  }
+});
+
+// DELETE cancel own listing — shares are returned
+app.delete("/api/listings/:id", requireAuth, (req, res) => {
+  const listingId = parseInt(req.params.id, 10);
+  const userId = req.session.userId;
+
+  const execute = db.transaction(() => {
+    const listing = db.prepare(
+      "SELECT * FROM listings WHERE id = ? AND status = 'OPEN'"
+    ).get(listingId);
+
+    if (!listing) throw Object.assign(new Error("Listing not found"), { code: "NOT_FOUND" });
+    if (listing.seller_id !== userId) throw Object.assign(new Error("Not your listing"), { code: "FORBIDDEN" });
+
+    // Return shares with accurate avg_cost
+    const existing = db.prepare(
+      "SELECT shares, avg_cost FROM holdings WHERE user_id = ? AND symbol = ?"
+    ).get(userId, listing.symbol);
+
+    if (existing) {
+      const totalShares = existing.shares + listing.quantity;
+      const restoredAvg = parseFloat(
+        ((existing.shares * existing.avg_cost + listing.quantity * listing.avg_cost_snapshot) / totalShares).toFixed(2)
+      );
+      db.prepare("UPDATE holdings SET shares = ?, avg_cost = ? WHERE user_id = ? AND symbol = ?")
+        .run(totalShares, restoredAvg, userId, listing.symbol);
+    } else {
+      db.prepare("INSERT INTO holdings (user_id, symbol, shares, avg_cost) VALUES (?, ?, ?, ?)")
+        .run(userId, listing.symbol, listing.quantity, listing.avg_cost_snapshot);
+    }
+
+    db.prepare("UPDATE listings SET status = 'CANCELLED' WHERE id = ?").run(listingId);
+    return { ok: true };
+  });
+
+  try {
+    res.json(execute());
+  } catch (err) {
+    if (err.code === "NOT_FOUND") return res.status(404).json({ error: err.message });
+    if (err.code === "FORBIDDEN") return res.status(403).json({ error: err.message });
+    console.error("Cancel listing error:", err);
+    res.status(500).json({ error: "Failed to cancel listing" });
+  }
+});
+
+// POST buy from a listing — atomic P2P transfer (supports partial quantity)
+app.post("/api/listings/:id/buy", requireAuth, (req, res) => {
+  const listingId = parseInt(req.params.id, 10);
+  const buyerId = req.session.userId;
+  const qty = parseInt(req.body.quantity, 10);
+
+  if (!qty || qty < 1) return res.status(400).json({ error: "Quantity must be at least 1" });
+
+  const execute = db.transaction(() => {
+    const listing = db.prepare(`
+      SELECT l.*, u.username AS seller_username
+      FROM listings l JOIN users u ON l.seller_id = u.id
+      WHERE l.id = ? AND l.status = 'OPEN'
+    `).get(listingId);
+
+    if (!listing) throw Object.assign(new Error("Listing not found or already filled"), { code: "NOT_FOUND" });
+    if (listing.seller_id === buyerId) throw Object.assign(new Error("Cannot buy your own listing"), { code: "OWN_LISTING" });
+    if (qty > listing.quantity) throw Object.assign(new Error(`Only ${listing.quantity} share(s) available`), { code: "INVALID_QTY" });
+
+    const total = parseFloat((qty * listing.price_per_share).toFixed(2));
+    const buyer = db.prepare("SELECT balance FROM users WHERE id = ?").get(buyerId);
+
+    if (buyer.balance < total) {
+      throw Object.assign(
+        new Error(`Insufficient funds. Need ${total.toFixed(2)}, have ${buyer.balance.toFixed(2)}`),
+        { code: "INSUFFICIENT_FUNDS" }
+      );
+    }
+
+    // Money: buyer → seller
+    db.prepare("UPDATE users SET balance = ROUND(balance - ?, 2) WHERE id = ?").run(total, buyerId);
+    db.prepare("UPDATE users SET balance = ROUND(balance + ?, 2) WHERE id = ?").run(total, listing.seller_id);
+
+    // Shares: listing → buyer holdings
+    const buyerHolding = db.prepare(
+      "SELECT shares, avg_cost FROM holdings WHERE user_id = ? AND symbol = ?"
+    ).get(buyerId, listing.symbol);
+
+    if (buyerHolding) {
+      const newTotal = buyerHolding.shares + qty;
+      const newAvg = parseFloat(
+        ((buyerHolding.shares * buyerHolding.avg_cost + total) / newTotal).toFixed(2)
+      );
+      db.prepare("UPDATE holdings SET shares = ?, avg_cost = ? WHERE user_id = ? AND symbol = ?")
+        .run(newTotal, newAvg, buyerId, listing.symbol);
+    } else {
+      db.prepare("INSERT INTO holdings (user_id, symbol, shares, avg_cost) VALUES (?, ?, ?, ?)")
+        .run(buyerId, listing.symbol, qty, parseFloat((total / qty).toFixed(2)));
+    }
+
+    // Partial fill: reduce remaining quantity; full fill: mark FILLED
+    if (qty < listing.quantity) {
+      db.prepare("UPDATE listings SET quantity = ? WHERE id = ?").run(listing.quantity - qty, listingId);
+    } else {
+      db.prepare("UPDATE listings SET status = 'FILLED' WHERE id = ?").run(listingId);
+    }
+
+    // Record transactions for both parties
+    db.prepare("INSERT INTO transactions (user_id, type, symbol, quantity, price, total) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(buyerId, "BUY", listing.symbol, qty, listing.price_per_share, total);
+    db.prepare("INSERT INTO transactions (user_id, type, symbol, quantity, price, total) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(listing.seller_id, "SELL", listing.symbol, qty, listing.price_per_share, total);
+
+    return {
+      symbol: listing.symbol,
+      quantity: qty,
+      price: listing.price_per_share,
+      total,
+      seller: listing.seller_username,
+    };
+  });
+
+  try {
+    res.json(execute());
+  } catch (err) {
+    if (err.code === "NOT_FOUND") return res.status(404).json({ error: err.message });
+    if (err.code === "OWN_LISTING") return res.status(400).json({ error: err.message });
+    if (err.code === "INVALID_QTY") return res.status(400).json({ error: err.message });
+    if (err.code === "INSUFFICIENT_FUNDS") return res.status(400).json({ error: err.message });
+    console.error("Buy listing error:", err);
+    res.status(500).json({ error: "Transaction failed" });
+  }
+});
+
 // ── Stock routes ──────────────────────────────────────────────────────────────
 
 app.get("/api/stocks", requireAuth, (req, res) => {

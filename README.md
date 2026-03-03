@@ -1,19 +1,22 @@
 # Stock Marketplace
 
-A full-stack stock trading simulator with real-time market prices, user authentication, per-user wallets, favorites, and a settings system.
+A full-stack stock trading simulator with real-time market prices, user authentication, per-user wallets, a P2P marketplace, favorites, and a settings system.
 
 ## Features
 
 - **20 live stocks** — prices fetched from Yahoo Finance every 5 seconds, including AAPL, TSLA, NVDA, MSFT, GOOGL, and 15 more
 - **User accounts** — register, login, logout with secure session management
 - **Per-user wallet** — each user starts with $10,000; balance and portfolio stored server-side
-- **Buy & sell shares** — atomic database transactions ensure no partial state
+- **Buy & sell shares** — trade directly against live market prices; atomic database transactions ensure no partial state
+- **P2P Marketplace** — list your shares for sale at any price; other users can browse open listings and buy any amount (1 share up to the full listing); shares are locked at listing time and released on cancel
+- **Partial fills** — when buying from a listing, choose exactly how many shares you want; the listing stays open with the remaining quantity until fully filled
+- **Price comparison badge** — each listing shows `+X%` or `-X% vs market` so buyers can instantly see if a listing is above or below the live price
 - **Portfolio tracking** — real-time market value and gain/loss per holding
-- **Transaction history** — full record of all buy/sell activity per user
+- **Transaction history** — full record of all buy/sell activity per user, including P2P trades
 - **Favorites** — star any stock to pin it to a dedicated section at the top of the market page; stored in the database per user
 - **Stock search** — filter the market list by symbol or company name
-- **Compact market list** — stocks show as rows by default; clicking a row expands it to a full card with description and trade button
-- **Profile / Wallet page** — dedicated page with account stats, full portfolio table, and filterable transaction history (All / BUY / SELL)
+- **Compact market list** — stocks show as rows by default; clicking a row expands it to a full card with description, direct trade controls, and a P2P listing form
+- **Wallet / Profile page** — dedicated page with account stats, full portfolio table, and filterable transaction history (All / BUY / SELL)
 - **Settings page** — dark/light theme toggle (moon/sun switch) and auto-refresh on/off; preferences saved in `localStorage`
 - **Username dropdown** — hover the username in the header to reveal Wallet and Settings links
 
@@ -45,7 +48,7 @@ Open [http://localhost:3000](http://localhost:3000) — you will be redirected t
 ## Project Structure
 
 ```
-├── server.js            # Express server — auth, stock, trade, and favorites routes
+├── server.js            # Express server — auth, stock, trade, favorites, and listings routes
 ├── db.js                # SQLite database setup and schema
 ├── marketplace.db       # SQLite data file (auto-created on first run)
 ├── sessions.db          # Session store (auto-created on first run)
@@ -83,6 +86,7 @@ Open [http://localhost:3000](http://localhost:3000) — you will be redirected t
 | Session fixation        | `session.regenerate()` called on every login            |
 | User enumeration        | Dummy bcrypt hash runs even when username doesn't exist |
 | Partial transactions    | `db.transaction()` — full atomic commit or rollback     |
+| P2P double-spend        | Shares deducted from seller at listing creation time    |
 | HTTP header attacks     | `helmet` sets CSP, X-Frame-Options, HSTS, and more      |
 | Inline script injection | No `onclick` / inline handlers — all listeners use `addEventListener` |
 
@@ -119,6 +123,14 @@ Open [http://localhost:3000](http://localhost:3000) — you will be redirected t
 | GET    | `/api/favorites`          | List user's favorites    |
 | POST   | `/api/favorites`          | Add favorite `{ symbol }` |
 | DELETE | `/api/favorites/:symbol`  | Remove favorite          |
+
+### P2P Marketplace (require authentication)
+| Method | Route                     | Description                                              |
+|--------|---------------------------|----------------------------------------------------------|
+| GET    | `/api/listings`           | List all open sell orders with seller username           |
+| POST   | `/api/listings`           | Create a sell listing `{ symbol, quantity, price_per_share }` |
+| DELETE | `/api/listings/:id`       | Cancel own listing (returns shares to portfolio)         |
+| POST   | `/api/listings/:id/buy`   | Buy from a listing `{ quantity }` — supports partial fills |
 
 ## Environment Variables
 

@@ -874,7 +874,9 @@ tfoot td {
   height: 21px;
   background: var(--muted);
   border-radius: 50%;
-  transition: transform 0.25s, background 0.25s;
+  transition:
+    transform 0.25s,
+    background 0.25s;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
 }
 
@@ -904,4 +906,196 @@ tfoot td {
 
 .theme-icon.active {
   color: var(--accent);
+}
+
+/* ── Inline Trade (inside expanded card) ────────────────────────────────────── */
+.inline-trade {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.inline-trade-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.inline-trade-meta strong {
+  color: var(--text);
+}
+
+.inline-trade-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inline-qty {
+  width: 72px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.inline-qty:focus {
+  border-color: var(--accent);
+}
+
+.inline-btn-buy,
+.inline-btn-sell {
+  padding: 8px 20px;
+  font-size: 0.88rem;
+}
+
+.collapse-hint {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.stock-card.selected {
+  cursor: default;
+}
+
+/* ── List for Sale panel (inside expanded card) ──────────────────────────────── */
+.inline-list {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.inline-list-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.inline-list-price {
+  width: 90px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.inline-list-price:focus { border-color: var(--accent); }
+
+.btn-list {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+.btn-list:hover { background: var(--accent); color: #fff; }
+
+/* ── Marketplace listing rows ────────────────────────────────────────────────── */
+#listings-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.listing-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.2s;
+}
+.listing-row:hover { border-color: var(--accent); }
+.listing-row.own-listing { border-color: var(--muted); opacity: 0.8; }
+
+.listing-symbol-block {
+  display: flex;
+  flex-direction: column;
+  min-width: 58px;
+}
+.listing-sym {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.listing-name {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.listing-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.listing-qty { font-size: 0.82rem; color: var(--text); }
+.listing-price { font-size: 0.82rem; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.listing-seller { font-size: 0.75rem; color: var(--muted); }
+
+.listing-diff {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.listing-diff-good { color: var(--green); background: rgba(34,197,94,0.1); }
+.listing-diff-high { color: var(--red); background: rgba(239,68,68,0.1); }
+
+.listing-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.listing-total {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+.listing-action-btn { padding: 6px 16px; font-size: 0.82rem; }
+
+.listing-buy-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.listing-qty-input {
+  width: 58px;
+  padding: 5px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-align: center;
+}
+.listing-qty-input:focus { outline: none; border-color: var(--accent); }
+.listing-total-dynamic {
+  font-size: 0.9rem;
+  font-weight: 700;
+  min-width: 64px;
+  text-align: right;
 }

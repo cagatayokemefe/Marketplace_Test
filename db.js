@@ -40,6 +40,17 @@ db.exec(`
     added_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     PRIMARY KEY (user_id, symbol)
   );
+
+  CREATE TABLE IF NOT EXISTS listings (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    seller_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    symbol           TEXT    NOT NULL,
+    quantity         INTEGER NOT NULL CHECK(quantity > 0),
+    price_per_share  REAL    NOT NULL CHECK(price_per_share > 0),
+    avg_cost_snapshot REAL   NOT NULL DEFAULT 0,
+    created_at       TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    status           TEXT    NOT NULL DEFAULT 'OPEN' CHECK(status IN ('OPEN','FILLED','CANCELLED'))
+  );
 `);
 
 module.exports = db;

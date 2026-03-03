@@ -8,15 +8,13 @@ let state = {
   favorites: [],
 };
 let currentStocks = [];
+let currentListings = [];
 let selectedSymbol = null;
 
 /* ── Helpers ─────────────────────────────────────────────────────────────────── */
 
 function fmt(n) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(n);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
 function fmtTime(iso) {
@@ -28,19 +26,14 @@ function showToast(msg, type = "success") {
   el.textContent = msg;
   el.className = `toast ${type} show`;
   clearTimeout(el._timer);
-  el._timer = setTimeout(() => {
-    el.className = "toast";
-  }, 3000);
+  el._timer = setTimeout(() => { el.className = "toast"; }, 3000);
 }
 
 /* ── Auth ────────────────────────────────────────────────────────────────────── */
 
 async function refreshUserState() {
   const res = await fetch("/api/auth/me");
-  if (res.status === 401) {
-    window.location.href = "/login";
-    return;
-  }
+  if (res.status === 401) { window.location.href = "/login"; return; }
   const data = await res.json();
   state.balance = data.balance;
   state.portfolio = data.portfolio;
@@ -51,10 +44,7 @@ async function refreshUserState() {
 async function init() {
   try {
     const res = await fetch("/api/auth/me");
-    if (res.status === 401) {
-      window.location.href = "/login";
-      return;
-    }
+    if (res.status === 401) { window.location.href = "/login"; return; }
     const data = await res.json();
     state = {
       username: data.username,
@@ -64,9 +54,10 @@ async function init() {
       favorites: data.favorites || [],
     };
     document.getElementById("username-display").textContent = data.username;
-    await fetchStocks();
+    await Promise.all([fetchStocks(), fetchListings()]);
     if (localStorage.getItem("autoRefresh") !== "false") {
       setInterval(fetchStocks, 5000);
+      setInterval(fetchListings, 8000);
     }
     renderPortfolio();
     renderTransactions();
@@ -81,39 +72,140 @@ document.getElementById("btn-logout").addEventListener("click", async () => {
   window.location.href = "/login";
 });
 
-/* ── Fetch stocks from server ────────────────────────────────────────────────── */
+/* ── Fetch stocks ────────────────────────────────────────────────────────────── */
 
 async function fetchStocks() {
   try {
     const res = await fetch("/api/stocks");
-    if (res.status === 401) {
-      window.location.href = "/login";
-      return;
-    }
+    if (res.status === 401) { window.location.href = "/login"; return; }
     currentStocks = await res.json();
-    const query = document
-      .getElementById("search-input")
-      .value.trim()
-      .toLowerCase();
+    const query = document.getElementById("search-input").value.trim().toLowerCase();
     renderMarket(query);
     renderFavorites();
-    updateTradePanel();
     renderPortfolio();
   } catch (e) {
     console.error("Failed to fetch stocks:", e);
   }
 }
 
+/* ── Fetch listings ──────────────────────────────────────────────────────────── */
+
+async function fetchListings() {
+  try {
+    const res = await fetch("/api/listings");
+    if (!res.ok) return;
+    currentListings = await res.json();
+    renderListings();
+  } catch (e) {
+    console.error("Failed to fetch listings:", e);
+  }
+}
+
 /* ── Search ──────────────────────────────────────────────────────────────────── */
 
 document.getElementById("search-input").addEventListener("input", (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  renderMarket(q);
+  renderMarket(e.target.value.trim().toLowerCase());
 });
 
-/* ── Build Stock Card (shared helper) ────────────────────────────────────────── */
+/* ── Market trade actions ────────────────────────────────────────────────────── */
 
-function buildStockCard(stock, isFav, compact = false) {
+async function handleBuy(symbol, qty) {
+  if (!qty || qty < 1) { showToast("Enter a valid quantity.", "error"); return; }
+  try {
+    const res = await fetch("/api/buy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, quantity: qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    await refreshUserState();
+    showToast(`Bought ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
+    await fetchStocks();
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    showToast("Transaction failed. Try again.", "error");
+  }
+}
+
+async function handleSell(symbol, qty) {
+  if (!qty || qty < 1) { showToast("Enter a valid quantity.", "error"); return; }
+  try {
+    const res = await fetch("/api/sell", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, quantity: qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    await refreshUserState();
+    showToast(`Sold ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`);
+    await fetchStocks();
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    showToast("Transaction failed. Try again.", "error");
+  }
+}
+
+/* ── Listing actions ─────────────────────────────────────────────────────────── */
+
+async function createListing(symbol, qty, price) {
+  if (!qty || qty < 1) { showToast("Enter a valid quantity.", "error"); return; }
+  if (!price || price <= 0) { showToast("Enter a valid price.", "error"); return; }
+  try {
+    const res = await fetch("/api/listings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol, quantity: qty, price }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    await refreshUserState();
+    showToast(`Listed ${data.quantity} share(s) of ${data.symbol} at ${fmt(data.price_per_share)}/share.`);
+    await Promise.all([fetchStocks(), fetchListings()]);
+    renderPortfolio();
+  } catch (e) {
+    showToast("Failed to create listing. Try again.", "error");
+  }
+}
+
+async function buyListing(listingId, qty) {
+  try {
+    const res = await fetch(`/api/listings/${listingId}/buy`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ quantity: qty }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    await refreshUserState();
+    showToast(`Bought ${data.quantity} share(s) of ${data.symbol} from ${data.seller} for ${fmt(data.total)}.`);
+    await Promise.all([fetchStocks(), fetchListings()]);
+    renderPortfolio();
+    renderTransactions();
+  } catch (e) {
+    showToast("Purchase failed. Try again.", "error");
+  }
+}
+
+async function cancelListing(listingId) {
+  try {
+    const res = await fetch(`/api/listings/${listingId}`, { method: "DELETE" });
+    const data = await res.json();
+    if (!res.ok) { showToast(data.error, "error"); return; }
+    showToast("Listing cancelled. Your shares have been returned.");
+    await Promise.all([fetchStocks(), fetchListings()]);
+    renderPortfolio();
+  } catch (e) {
+    showToast("Failed to cancel listing.", "error");
+  }
+}
+
+/* ── Build Stock Card ────────────────────────────────────────────────────────── */
+
+function buildStockCard(stock, isFav, compact = false, collapsible = true) {
   const positive = stock.change >= 0;
   const card = document.createElement("div");
 
@@ -131,9 +223,11 @@ function buildStockCard(stock, isFav, compact = false) {
       </span>
     `;
     card.addEventListener("click", () => openTrade(stock.symbol));
+
   } else {
-    card.className =
-      "stock-card" + (selectedSymbol === stock.symbol ? " selected" : "");
+    const owned = state.portfolio[stock.symbol]?.shares || 0;
+    const marketPrice = stock.price > 0 ? stock.price.toFixed(2) : "0.00";
+    card.className = "stock-card" + (collapsible ? " selected" : "");
     card.innerHTML = `
       <button class="btn-star ${isFav ? "starred" : ""}" data-symbol="${stock.symbol}" title="${isFav ? "Remove favorite" : "Add to favorites"}">
         ${isFav ? "&#9733;" : "&#9734;"}
@@ -151,11 +245,78 @@ function buildStockCard(stock, isFav, compact = false) {
         </div>
       </div>
       <p class="stock-desc">${stock.description}</p>
-      <button class="btn-trade" data-symbol="${stock.symbol}">Trade ${stock.symbol}</button>
+
+      <div class="inline-trade">
+        <div class="inline-trade-meta">
+          <span>You own: <strong>${owned} share${owned !== 1 ? "s" : ""}</strong></span>
+          <span>Total: <strong class="inline-cost">${fmt(stock.price)}</strong></span>
+        </div>
+        <div class="inline-trade-actions">
+          <input type="number" class="inline-qty" min="1" value="1" />
+          <button class="btn btn-buy inline-btn-buy">Buy</button>
+          <button class="btn btn-sell inline-btn-sell">Sell</button>
+        </div>
+      </div>
+
+      <div class="inline-list">
+        <div class="inline-list-header">List for Sale (P2P)</div>
+        <div class="inline-trade-meta">
+          <span>Shares to list</span>
+          <span>Your price per share</span>
+        </div>
+        <div class="inline-trade-actions">
+          <input type="number" class="inline-qty inline-list-qty" min="1" value="1" placeholder="qty" />
+          <input type="number" class="inline-list-price" step="0.01" min="0.01" value="${marketPrice}" placeholder="price" />
+          <button class="btn btn-list inline-btn-list">List</button>
+        </div>
+      </div>
+
+      ${collapsible ? '<div class="collapse-hint">click to close</div>' : ""}
     `;
-    card
-      .querySelector(".btn-trade")
-      .addEventListener("click", () => openTrade(stock.symbol));
+
+    const qtyInput = card.querySelector(".inline-qty");
+    const costDisplay = card.querySelector(".inline-cost");
+
+    qtyInput.addEventListener("input", (e) => {
+      e.stopPropagation();
+      costDisplay.textContent = fmt(stock.price * (parseInt(qtyInput.value, 10) || 1));
+    });
+    qtyInput.addEventListener("click", (e) => e.stopPropagation());
+
+    card.querySelector(".inline-btn-buy").addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleBuy(stock.symbol, parseInt(qtyInput.value, 10) || 1);
+    });
+
+    card.querySelector(".inline-btn-sell").addEventListener("click", (e) => {
+      e.stopPropagation();
+      handleSell(stock.symbol, parseInt(qtyInput.value, 10) || 1);
+    });
+
+    const listQtyInput = card.querySelector(".inline-list-qty");
+    const listPriceInput = card.querySelector(".inline-list-price");
+
+    listQtyInput.addEventListener("click", (e) => e.stopPropagation());
+    listQtyInput.addEventListener("input", (e) => e.stopPropagation());
+    listPriceInput.addEventListener("click", (e) => e.stopPropagation());
+    listPriceInput.addEventListener("input", (e) => e.stopPropagation());
+
+    card.querySelector(".inline-btn-list").addEventListener("click", (e) => {
+      e.stopPropagation();
+      createListing(
+        stock.symbol,
+        parseInt(listQtyInput.value, 10) || 1,
+        parseFloat(listPriceInput.value) || stock.price
+      );
+    });
+
+    if (collapsible) {
+      card.addEventListener("click", (e) => {
+        if (!e.target.closest("button") && !e.target.closest("input")) {
+          openTrade(stock.symbol);
+        }
+      });
+    }
   }
 
   card.querySelector(".btn-star").addEventListener("click", (e) => {
@@ -163,6 +324,15 @@ function buildStockCard(stock, isFav, compact = false) {
     toggleFavorite(stock.symbol);
   });
   return card;
+}
+
+/* ── Open / collapse trade (toggle) ─────────────────────────────────────────── */
+
+function openTrade(symbol) {
+  selectedSymbol = selectedSymbol === symbol ? null : symbol;
+  const query = document.getElementById("search-input").value.trim().toLowerCase();
+  renderMarket(query);
+  renderFavorites();
 }
 
 /* ── Render Market ───────────────────────────────────────────────────────────── */
@@ -173,16 +343,14 @@ function renderMarket(query = "") {
 
   const filtered = query
     ? currentStocks.filter(
-        (s) =>
-          s.symbol.toLowerCase().includes(query) ||
-          s.name.toLowerCase().includes(query),
+        (s) => s.symbol.toLowerCase().includes(query) || s.name.toLowerCase().includes(query)
       )
     : currentStocks;
 
   filtered.forEach((stock) => {
     const isFav = state.favorites.includes(stock.symbol);
     const isSelected = stock.symbol === selectedSymbol;
-    grid.appendChild(buildStockCard(stock, isFav, !isSelected));
+    grid.appendChild(buildStockCard(stock, isFav, !isSelected, true));
   });
 
   document.getElementById("balance").textContent = fmt(state.balance);
@@ -202,11 +370,82 @@ function renderFavorites() {
   section.style.display = "";
   grid.innerHTML = "";
 
-  const favStocks = currentStocks.filter((s) =>
-    state.favorites.includes(s.symbol),
-  );
-  favStocks.forEach((stock) => {
-    grid.appendChild(buildStockCard(stock, true, false));
+  currentStocks
+    .filter((s) => state.favorites.includes(s.symbol))
+    .forEach((stock) => {
+      grid.appendChild(buildStockCard(stock, true, false, false));
+    });
+}
+
+/* ── Render Listings (Marketplace) ──────────────────────────────────────────── */
+
+function renderListings() {
+  const container = document.getElementById("listings-container");
+  const empty = document.getElementById("marketplace-empty");
+
+  if (currentListings.length === 0) {
+    empty.style.display = "";
+    container.innerHTML = "";
+    return;
+  }
+
+  empty.style.display = "none";
+  container.innerHTML = "";
+
+  currentListings.forEach((listing) => {
+    const isOwn = listing.seller_username === state.username;
+    const total = parseFloat((listing.quantity * listing.price_per_share).toFixed(2));
+    const stock = currentStocks.find((s) => s.symbol === listing.symbol);
+    const marketPrice = stock ? stock.price : 0;
+    const diff = marketPrice > 0
+      ? parseFloat(((listing.price_per_share - marketPrice) / marketPrice * 100).toFixed(1))
+      : null;
+    const diffLabel = diff !== null
+      ? `<span class="listing-diff ${diff <= 0 ? "listing-diff-good" : "listing-diff-high"}">${diff > 0 ? "+" : ""}${diff}% vs market</span>`
+      : "";
+
+    const div = document.createElement("div");
+    div.className = "listing-row" + (isOwn ? " own-listing" : "");
+    div.innerHTML = `
+      <div class="listing-symbol-block">
+        <span class="listing-sym">${listing.symbol}</span>
+        <span class="listing-name">${stock ? stock.name : listing.symbol}</span>
+      </div>
+      <div class="listing-details">
+        <span class="listing-qty">${listing.quantity} share${listing.quantity !== 1 ? "s" : ""} available</span>
+        <span class="listing-price">${fmt(listing.price_per_share)}/share ${diffLabel}</span>
+        <span class="listing-seller">by <strong>${listing.seller_username}</strong>${isOwn ? " (you)" : ""}</span>
+      </div>
+      <div class="listing-right">
+        ${isOwn
+          ? `<span class="listing-total">${fmt(total)}</span>
+             <button class="btn btn-cancel listing-action-btn" data-id="${listing.id}">Cancel</button>`
+          : `<div class="listing-buy-controls">
+               <input type="number" class="listing-qty-input" min="1" max="${listing.quantity}" value="1" />
+               <span class="listing-total-dynamic">${fmt(listing.price_per_share)}</span>
+               <button class="btn btn-buy listing-action-btn" data-id="${listing.id}">Buy</button>
+             </div>`
+        }
+      </div>
+    `;
+
+    if (isOwn) {
+      div.querySelector(".listing-action-btn").addEventListener("click", () => cancelListing(listing.id));
+    } else {
+      const qtyInput = div.querySelector(".listing-qty-input");
+      const totalEl = div.querySelector(".listing-total-dynamic");
+      qtyInput.addEventListener("input", () => {
+        const v = Math.min(Math.max(parseInt(qtyInput.value) || 1, 1), listing.quantity);
+        qtyInput.value = v;
+        totalEl.textContent = fmt(parseFloat((v * listing.price_per_share).toFixed(2)));
+      });
+      div.querySelector(".listing-action-btn").addEventListener("click", () => {
+        const qty = Math.min(Math.max(parseInt(qtyInput.value) || 1, 1), listing.quantity);
+        buyListing(listing.id, qty);
+      });
+    }
+
+    container.appendChild(div);
   });
 }
 
@@ -232,127 +471,9 @@ async function toggleFavorite(symbol) {
   }
 
   renderFavorites();
-  const query = document
-    .getElementById("search-input")
-    .value.trim()
-    .toLowerCase();
+  const query = document.getElementById("search-input").value.trim().toLowerCase();
   renderMarket(query);
 }
-
-/* ── Trade Panel ─────────────────────────────────────────────────────────────── */
-
-function openTrade(symbol) {
-  selectedSymbol = symbol;
-  document.getElementById("section-trade").style.display = "";
-  document.getElementById("trade-symbol-title").textContent = symbol;
-  document.getElementById("qty-input").value = 1;
-  updateTradePanel();
-  document
-    .getElementById("section-trade")
-    .scrollIntoView({ behavior: "smooth", block: "start" });
-  const query = document
-    .getElementById("search-input")
-    .value.trim()
-    .toLowerCase();
-  renderMarket(query);
-  renderFavorites();
-}
-
-function updateTradePanel() {
-  if (!selectedSymbol) return;
-  const stock = currentStocks.find((s) => s.symbol === selectedSymbol);
-  if (!stock) return;
-
-  const qty = parseInt(document.getElementById("qty-input").value, 10) || 1;
-  document.getElementById("trade-price").textContent = fmt(stock.price);
-  document.getElementById("trade-owned").textContent = (
-    state.portfolio[selectedSymbol]?.shares || 0
-  ).toString();
-  document.getElementById("trade-cost").textContent = fmt(stock.price * qty);
-}
-
-document
-  .getElementById("qty-input")
-  .addEventListener("input", updateTradePanel);
-
-document.getElementById("btn-cancel").addEventListener("click", () => {
-  selectedSymbol = null;
-  document.getElementById("section-trade").style.display = "none";
-  const query = document
-    .getElementById("search-input")
-    .value.trim()
-    .toLowerCase();
-  renderMarket(query);
-  renderFavorites();
-});
-
-/* ── Buy ─────────────────────────────────────────────────────────────────────── */
-
-document.getElementById("btn-buy").addEventListener("click", async () => {
-  const qty = parseInt(document.getElementById("qty-input").value, 10);
-  if (!qty || qty < 1) {
-    showToast("Enter a valid quantity.", "error");
-    return;
-  }
-
-  try {
-    const res = await fetch("/api/buy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: selectedSymbol, quantity: qty }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showToast(data.error, "error");
-      return;
-    }
-
-    await refreshUserState();
-    showToast(
-      `Bought ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`,
-    );
-    await fetchStocks();
-    renderPortfolio();
-    renderTransactions();
-    updateTradePanel();
-  } catch (e) {
-    showToast("Transaction failed. Try again.", "error");
-  }
-});
-
-/* ── Sell ────────────────────────────────────────────────────────────────────── */
-
-document.getElementById("btn-sell").addEventListener("click", async () => {
-  const qty = parseInt(document.getElementById("qty-input").value, 10);
-  if (!qty || qty < 1) {
-    showToast("Enter a valid quantity.", "error");
-    return;
-  }
-
-  try {
-    const res = await fetch("/api/sell", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: selectedSymbol, quantity: qty }),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      showToast(data.error, "error");
-      return;
-    }
-
-    await refreshUserState();
-    showToast(
-      `Sold ${data.quantity} share(s) of ${data.symbol} for ${fmt(data.total)}.`,
-    );
-    await fetchStocks();
-    renderPortfolio();
-    renderTransactions();
-    updateTradePanel();
-  } catch (e) {
-    showToast("Transaction failed. Try again.", "error");
-  }
-});
 
 /* ── Portfolio ───────────────────────────────────────────────────────────────── */
 

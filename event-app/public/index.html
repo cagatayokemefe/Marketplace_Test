@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <title>Buluş — Etkinlik bul, katıl, öde</title>
+    <meta
+      name="description"
+      content="Voleybol, halı saha, yoga, atölye… Yakınındaki etkinliği bul, yerini ödemeyle garantile."
+    />
+
+    <script>
+      // Tema, ilk boyamadan önce uygulanır (yanıp sönme olmasın diye).
+      (function () {
+        var stored = localStorage.getItem("bulus.theme");
+        var theme =
+          stored ||
+          (window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches
+            ? "dark"
+            : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+
+    <link rel="stylesheet" href="style.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/icon-180.png" />
+
+    <meta name="theme-color" content="#e11d48" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Buluş" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  </head>
+
+  <body>
+    <header class="appbar" id="appbar" hidden>
+      <div class="appbar-inner">
+        <a href="#/" class="brand">
+          <span class="brand-mark">🎟️</span>
+          <span>Buluş</span>
+        </a>
+
+        <nav class="nav-desktop" id="nav-desktop"></nav>
+
+        <span class="appbar-spacer"></span>
+
+        <button
+          class="icon-btn"
+          id="theme-toggle"
+          title="Temayı değiştir"
+          aria-label="Temayı değiştir"
+        >
+          🌙
+        </button>
+        <a href="#/profil" id="appbar-avatar" aria-label="Profil"></a>
+      </div>
+    </header>
+
+    <main id="view" class="container"></main>
+
+    <nav class="tabbar" id="tabbar" hidden></nav>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="app.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () {
+          navigator.serviceWorker.register("sw.js").catch(function () {
+            /* çevrimdışı desteği isteğe bağlı */
+          });
+        });
+      }
+    </script>
+  </body>
+</html>

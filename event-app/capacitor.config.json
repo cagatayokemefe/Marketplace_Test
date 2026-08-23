@@ -1,0 +1,18 @@
+{
+  "appId": "app.bulus.event",
+  "appName": "Buluş",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "cleartext": false
+  },
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#f6f7fb"
+  },
+  "android": {
+    "backgroundColor": "#f6f7fb"
+  }
+}

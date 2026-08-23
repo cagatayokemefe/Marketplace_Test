@@ -1,3 +1,10 @@
+> **Also in this repo:** [`event-app/`](event-app/) — **Buluş**, a Meetup-style event
+> app (web + installable PWA + Capacitor native shell) where users join events such
+> as a volleyball match and pay the participation fee in-app, with all payments
+> collected by the app owner. See [`event-app/README.md`](event-app/README.md).
+
+---
+
 # Stock Marketplace
 
 A full-stack stock trading simulator with real-time market prices, user authentication, per-user wallets, a P2P marketplace, favorites, and a settings system.

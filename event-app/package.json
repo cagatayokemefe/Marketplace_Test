@@ -1,0 +1,30 @@
+{
+  "name": "bulus-event-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bulus - etkinlik kesfet, katil, uygulama uzerinden ode (Meetup benzeri, web + PWA + Capacitor)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node seed.js",
+    "reset": "node seed.js --reset",
+    "icons": "node tools/make-icons.js",
+    "smoke": "node tools/smoke-test.js",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap open ios",
+    "cap:android": "npx cap open android"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.6.2",
+    "connect-sqlite3": "^0.9.16",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "express-session": "^1.19.0",
+    "helmet": "^8.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

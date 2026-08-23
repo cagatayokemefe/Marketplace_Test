@@ -1,25 +1,27 @@
-# MeetApp — etkinlik bul, katıl, öde
+# MeetApp — find an event, join, pay
 
-Meetup benzeri bir etkinlik uygulaması. Biri voleybol maçı açar, katılmak isteyen
-kişi uygulamadan yerini ayırtır, katılım ücretini uygulama üzerinden öder ve
-girişte gösterebileceği bir bilet alır. **Tüm ödemeler uygulama sahibinin
-hesabında toplanır**; organizatöre ödenecek pay ayrı bir kalem olarak raporlanır.
+*[Türkçe sürüm →](README.tr.md)*
 
-Tek bir kod tabanı üç yerde çalışır:
+A Meetup-style event app. Someone opens a volleyball game, whoever wants to
+play reserves a spot, pays the participation fee inside the app, and gets a
+ticket code the host validates at the door. **Every payment is collected by the
+app owner**; the host's share is tracked separately as an amount payable.
 
-| Nerede | Nasıl |
+One codebase runs in three places:
+
+| Where | How |
 | --- | --- |
-| **Web (masaüstü)** | Tarayıcıda `http://localhost:3000` |
-| **Telefon — uygulama gibi** | PWA: Safari/Chrome'da "Ana Ekrana Ekle" → tam ekran, ikonlu, çevrimdışı açılan uygulama |
-| **Native iOS / Android** | Capacitor ile App Store / Play Store paketi (`capacitor.config.json` hazır) |
+| **Web (desktop)** | In the browser at `http://localhost:3000` |
+| **Phone — like a real app** | PWA: "Add to Home Screen" in Safari/Chrome → full screen, its own icon, opens offline |
+| **Native iOS / Android** | An App Store / Play Store build via Capacitor (`capacitor.config.json` is ready) |
 
-Arayüz mobil öncelikli tasarlandı: telefonda alt sekme çubuğu ve sabit ödeme
-butonu, masaüstünde üst menü ve iki sütunlu detay sayfası kullanılır. Açık/koyu
-tema ve **Türkçe / İngilizce dil desteği** vardır.
+The interface is mobile-first: a bottom tab bar and a sticky pay button on
+phones, a top nav and a two-column detail page on desktop. Light/dark theme and
+**Turkish / English language support** are built in.
 
 ---
 
-## Hızlı başlangıç
+## Quick start
 
 ```bash
 cd event-app
@@ -27,138 +29,142 @@ npm install
 npm start
 ```
 
-`http://localhost:3000` adresini aç. Veritabanı boşsa demo verisi (voleybol,
-halı saha, yoga, doğa yürüyüşü etkinlikleri) otomatik yüklenir.
+Open `http://localhost:3000`. If the database is empty, demo data (volleyball,
+five-a-side football, yoga, a forest hike) is loaded automatically.
 
-### Hazır hesaplar
+### Demo accounts
 
-| Hesap | E-posta | Şifre | Ne görür |
+| Account | Email | Password | What they see |
 | --- | --- | --- | --- |
-| Katılımcı | `irfan@example.com` | `irfan1234` | Etkinliklere katılır, öder, bilet alır |
-| Organizatör | `zeynep@example.com` | `zeynep1234` | Kendi etkinliklerinin katılımcı listesi + giriş kontrolü |
-| **Uygulama sahibi** | `owner@meetapp.app` | `owner1234` | Gelir paneli: tüm tahsilat, komisyon, organizatörlere borç |
+| Attendee | `irfan@example.com` | `irfan1234` | Joins events, pays, gets a ticket |
+| Host | `zeynep@example.com` | `zeynep1234` | Attendee list and door check-in for their own events |
+| **App owner** | `owner@meetapp.app` | `owner1234` | Revenue dashboard: everything collected, commission, amounts owed to hosts |
 
-### Dil
+### Language
 
-Üst çubuktaki **TR / EN** düğmesinden ya da Profil sayfasındaki dil bölümünden
-anında değiştirilir. Detaylar için aşağıdaki [Dil desteği](#dil-desteği)
-bölümüne bak.
+Switch with the **TR / EN** button in the top bar, or from the language section
+on the profile page. See [Language support](#language-support) below.
 
-Yararlı komutlar:
+Useful commands:
 
 ```bash
-npm run seed     # demo verisini ekler (var olanı bozmaz)
-npm run reset    # veritabanını temizleyip demo veriyi baştan kurar
-npm run smoke    # uçtan uca duman testi (geçici veritabanıyla)
-npm run icons    # uygulama ikonlarını yeniden üretir
+npm run seed     # add demo data (leaves existing data alone)
+npm run reset    # wipe the database and re-create demo data
+npm run smoke    # end-to-end smoke test (against a temporary database)
+npm run icons    # regenerate the app icons
 ```
 
 ---
 
-## Senaryo: İrfan voleybola katılıyor
+## Walkthrough: İrfan joins a volleyball game
 
-1. **Keşfet** — İrfan uygulamayı açar, "voleybol" arar ya da Spor/İstanbul
-   filtrelerini seçer. Kartta tarih, mekân, doluluk (1/12) ve ücret (₺150) görünür.
-2. **Detay** — Etkinliğe girer; açıklama, adres, organizatör ve katılanlar listelenir.
-   Ekranın altında sabit duran çubukta "₺150 · kişi başı" ve **Katıl ve öde** vardır.
-3. **Yer ayırma** — Butona basınca sunucu kontenjanı kontrol eder, `pending`
-   durumunda bir kayıt ve bir ödeme kaydı açar.
-4. **Ödeme** — Kart ekranında tutar ve etkinlik özeti görünür. Ödeme onaylanınca
-   kayıt `confirmed` olur ve tutar uygulama sahibinin hesabına yazılır.
-5. **Bilet** — İrfan'a `ABCD-1234` biçiminde bir giriş kodu verilir. Salonda
-   organizatör bu kodu **Katılımcılar → Giriş kontrolü** ekranına yazıp doğrular;
-   aynı kod ikinci kez kabul edilmez.
-6. **İptal** — Etkinliğe 6 saatten fazla varsa İrfan iptal edebilir, ücret iade edilir.
-   Son 6 saatte iade kapalıdır.
+1. **Discover** — İrfan opens the app and searches for "volleyball", or picks
+   the Sports/İstanbul filters. Each card shows the date, venue, how full it is
+   (1/12) and the price (₺150).
+2. **Detail** — He opens the event: description, address, host and who is going.
+   A bar pinned to the bottom shows "₺150 · per person" and **Join and pay**.
+3. **Holding the spot** — On tap, the server checks capacity and opens a
+   registration and a payment, both `pending`.
+4. **Payment** — The checkout screen shows the amount and an event summary. Once
+   the payment succeeds the registration becomes `confirmed` and the amount is
+   credited to the app owner.
+5. **Ticket** — İrfan gets an entry code like `ABCD-1234`. At the venue the host
+   types it into **Attendees → Check-in**; the same code is refused the second time.
+6. **Cancelling** — More than 6 hours before the event İrfan can cancel and is
+   refunded. Inside the last 6 hours refunds are closed.
 
 ---
 
-## Para nasıl akıyor?
+## How the money flows
 
 ```
-İrfan'ın kartı ──► Uygulama sahibinin hesabı ──► (etkinlik sonrası) organizatör
-                   ▲                              ▲
-                   │                              │
-            tahsilatın tamamı              komisyon düşülmüş pay
+İrfan's card ──► App owner's account ──► (after the event) the host
+                 ▲                        ▲
+                 │                        │
+        the full amount            share minus commission
 ```
 
-- Katılımcının ödediği tutarın **tamamı** uygulama sahibine geçer.
-- Her ödeme kaydında `commission_minor` (sahibin payı) ve
-  `organizer_share_minor` (organizatöre borç) ayrı ayrı tutulur.
-- Komisyon oranı `COMMISSION_RATE` ile ayarlanır (varsayılan `0.10` = %10).
-- Uygulama sahibi `#/dashboard` ekranında toplam tahsilatı, komisyonu,
-  organizatörlere olan borcu, iadeleri ve ödeme dökümünü görür.
+- **All** of what the attendee pays goes to the app owner.
+- Each payment records `commission_minor` (the owner's cut) and
+  `organizer_share_minor` (owed to the host) separately.
+- The commission rate is set with `COMMISSION_RATE` (default `0.10` = 10%).
+- On `#/dashboard` the owner sees total collected, commission, what is owed to
+  hosts, refunds and a full payment breakdown.
 
-Tutarlar veritabanında **kuruş** (tam sayı) olarak saklanır — kayan nokta
-yuvarlama hatası olmaz. ₺150 → `15000`.
+Amounts are stored as integers in **minor units** (cents) — no floating-point
+rounding drift. ₺150 → `15000`.
 
-### Ödeme sağlayıcısı
+### Payment provider
 
-| Mod | Ne zaman | Davranış |
+| Mode | When | Behaviour |
 | --- | --- | --- |
-| `demo` | `STRIPE_SECRET_KEY` tanımlı değilken (varsayılan) | Uygulama içi kart formu. Gerçek para hareketi yok. Test kartı `4242 4242 4242 4242`, reddedilen kart `4000 0000 0000 0002`. |
-| `stripe` | `STRIPE_SECRET_KEY` tanımlıyken | Gerçek Stripe Checkout. Kullanıcı Stripe'a yönlenir, dönüşte ödeme sunucu tarafında doğrulanır. Para, anahtarın ait olduğu (uygulama sahibinin) Stripe hesabına geçer. İptalde Stripe üzerinden iade yapılır. |
+| `demo` | `STRIPE_SECRET_KEY` is not set (default) | An in-app card form. No real money moves. Test card `4242 4242 4242 4242`, declined card `4000 0000 0000 0002`. |
+| `stripe` | `STRIPE_SECRET_KEY` is set | Real Stripe Checkout. The user is redirected to Stripe and the payment is verified server-side on the way back. The money lands in the Stripe account the key belongs to — the app owner's. Cancellations are refunded through Stripe. |
 
-Stripe'a geçmek için `.env.example` dosyasını `.env` olarak kopyalayıp
-`STRIPE_SECRET_KEY` ve `PUBLIC_URL` değerlerini doldurman yeterli — kod
-değişikliği gerekmez. Stripe SDK'sı kurulmaz; REST API'ye doğrudan istek atılır.
+To go live, copy `.env.example` to `.env` and fill in `STRIPE_SECRET_KEY` and
+`PUBLIC_URL` — no code changes needed. The Stripe SDK is not installed; the app
+calls the REST API directly.
 
-> Kart bilgileri hiçbir modda veritabanına yazılmaz; yalnızca son 4 hane
-> (demo modunda) makbuz için saklanır.
+> Card details are never written to the database in either mode; only the last
+> four digits are kept (in demo mode) for the receipt.
 
 ---
 
-## Dil desteği
+## Language support
 
-Uygulama Türkçe ve İngilizce çalışır. Dil, üst çubuktaki **TR / EN** düğmesinden
-ya da Profil sayfasından değiştirilir; seçim `localStorage`'a yazılır ve sonraki
-açılışlarda hatırlanır. Seçim yoksa tarayıcı dili kullanılır, o da desteklenmiyorsa
-`DEFAULT_LANG` devreye girer.
+The app runs in Turkish and English. The language is switched from the
+**TR / EN** button in the top bar or from the profile page; the choice is saved
+to `localStorage` and remembered on the next visit. With no saved choice the
+browser language is used, and if that is unsupported `DEFAULT_LANG` takes over.
 
-Çeviri iki katmanda yapılır:
+Translation happens in two layers:
 
-| Katman | Dosya | Kapsam |
+| Layer | File | Covers |
 | --- | --- | --- |
-| Arayüz | `public/i18n.js` | Tüm ekran metinleri, butonlar, boş durumlar, bildirimler |
-| Sunucu | `messages.js` | API'nin döndürdüğü hata ve doğrulama mesajları |
+| Interface | `public/i18n.js` | Every screen string, button, empty state and toast |
+| Server | `messages.js` | Error and validation messages returned by the API |
 
-İstemci, seçili dili her API isteğinde `X-Lang` başlığıyla gönderir; sunucu
-sırayla `?lang=` sorgusuna, `X-Lang` başlığına, `Accept-Language` başlığına ve
-son olarak `DEFAULT_LANG`'e bakar. Böylece "Şifre en az 8 karakter olmalı" gibi
-mesajlar da kullanıcının dilinde gelir.
+The client sends the selected language in an `X-Lang` header on every API
+request; the server resolves it in order from the `?lang=` query, the `X-Lang`
+header, `Accept-Language`, and finally `DEFAULT_LANG`. That way messages like
+"Password must be at least 8 characters" also arrive in the reader's language.
 
-Dile bağlı biçimlendirme `Intl` ile yapılır: tarihler (`25 Ağustos 2026 Salı` ↔
-`Tuesday 25 August 2026`), saatler ve para birimi. Tutarlar her dilde kısa
-simgeyle gösterilir (`₺150`).
+Locale-dependent formatting goes through `Intl`: dates
+(`25 Ağustos 2026 Salı` ↔ `Tuesday 25 August 2026`), times and currency. Amounts
+use the narrow symbol in every language (`₺150`).
 
-Kategori ve seviye değerleri veritabanında tek bir kanonik biçimde (Türkçe)
-saklanır, ekranda çevrilir — böylece dil değiştirince filtreler bozulmaz.
-Etkinlik başlığı ve açıklaması ise organizatörün yazdığı içeriktir ve makine
-çevirisine sokulmaz; hangi dilde yazıldıysa öyle görünür.
+Event category and level are stored in the database in a single canonical form
+(English: `Sports`, `Outdoors`, `All`, `Beginner`, …) and translated only for
+display, so switching language never breaks the filters. Event titles and
+descriptions are content written by the host and are deliberately **not**
+machine-translated — they appear in whatever language they were written in.
 
-### Yeni dil eklemek
+### Adding a language
 
-1. `public/i18n.js` içindeki `LANGS` dizisine bir satır ekle
-   (`{ code, label, flag, locale }`).
-2. Aynı dosyadaki `DICT`'e aynı anahtarlarla bir çeviri nesnesi ekle.
-3. `messages.js` içindeki `DICT`'e sunucu mesajlarını ekle.
+1. Add a row to `LANGS` in `public/i18n.js` (`{ code, label, flag, locale }`).
+2. Add a translation object with the same keys to `DICT` in that file.
+3. Add the server messages to `DICT` in `messages.js`.
 
-Eksik bırakılan anahtarlar varsayılan dile düşer, uygulama kırılmaz.
+Any key you leave out falls back to the default language; nothing breaks.
+
+> Source comments and the demo seed data are in Turkish. That is deliberate, not
+> an oversight — the code the machine reads is English, the notes the author
+> reads are Turkish.
 
 ---
 
-## Telefona uygulama olarak kurmak
+## Installing on a phone
 
-### 1. PWA (en hızlı yol, mağaza gerekmez)
+### 1. PWA (fastest route, no store needed)
 
-Sunucuyu HTTPS bir adreste yayına al, telefondan aç:
+Deploy the server behind HTTPS, then open it on a phone:
 
-- **iOS:** Safari → Paylaş → *Ana Ekrana Ekle*
-- **Android:** Chrome → menü → *Uygulamayı yükle*
+- **iOS:** Safari → Share → *Add to Home Screen*
+- **Android:** Chrome → menu → *Install app*
 
-Sonuç: ana ekranda ikon, tam ekran (adres çubuğu yok), çevrimdışı açılabilen
-kabuk. `public/manifest.webmanifest` ve `public/sw.js` bunun için hazırdır;
-ikonlar `tools/make-icons.js` tarafından koddan üretilir.
+You get an icon on the home screen, a full-screen view with no address bar, and
+a shell that opens offline. `public/manifest.webmanifest` and `public/sw.js`
+handle this; the icons are generated from code by `tools/make-icons.js`.
 
 ### 2. Native iOS / Android (App Store / Play Store)
 
@@ -168,142 +174,146 @@ npm install --save-dev @capacitor/cli @capacitor/core @capacitor/ios @capacitor/
 npx cap add ios
 npx cap add android
 npx cap sync
-npx cap open ios       # Xcode açılır
-npx cap open android   # Android Studio açılır
+npx cap open ios       # opens Xcode
+npx cap open android   # opens Android Studio
 ```
 
-Native kabuk API'ye HTTP üzerinden ulaşmalıdır. `capacitor.config.json`
-içine sunucunun adresini ekle:
+The native shell has to reach the API over HTTP, so point
+`capacitor.config.json` at your server:
 
 ```json
 "server": { "url": "https://meetapp.example.com", "androidScheme": "https" }
 ```
 
-Arayüz zaten dokunmatik hedef boyutlarına, `safe-area-inset` değerlerine ve
-16px form yazı boyutuna (iOS'ta odaklanınca zoom olmaması için) göre yazıldı.
+The interface is already written for touch target sizes, `safe-area-inset`
+values and 16px form text (so iOS does not zoom on focus).
 
-> App Store notu: iOS'ta **fiziksel bir etkinliğe katılım ücreti** dış ödeme
-> yöntemiyle tahsil edilebilir (App Store yönergeleri 3.1.3(e), gerçek dünyada
-> tüketilen hizmetler). Dijital içerik satılsaydı uygulama içi satın alma
-> zorunlu olurdu.
+> App Store note: on iOS a **fee for a physical, real-world event** may be
+> charged through an external payment method (App Store Review Guidelines
+> 3.1.3(e), services consumed outside the app). In-app purchase would only be
+> mandatory if the app sold digital content.
 
 ---
 
-## Yayına alma
+## Deployment
 
-Uygulama tek bir Node süreci ve tek bir SQLite dosyasıdır; **kalıcı disk veren**
-herhangi bir sunucuda çalışır. Vercel/Netlify gibi sunucusuz platformlar
-uygun değildir — dosya sistemi kalıcı olmadığı için veritabanı her dağıtımda silinir.
+The app is a single Node process and a single SQLite file, so it runs on any
+host that gives it a **persistent disk**. Serverless platforms such as
+Vercel/Netlify are not suitable — their filesystem is ephemeral, so the database
+would be wiped on every deploy.
 
-Depoda hazır bir `Dockerfile` var: veriyi `/data` klasörüne yazar, `/api/health`
-ucuyla canlılık bildirir ve `0.0.0.0` üzerinden dinler.
+A ready-made `Dockerfile` is included: it writes data to `/data`, reports
+liveness on `/api/health`, and listens on `0.0.0.0`.
 
 ```bash
 docker build -t meetapp .
 docker run -p 3000:3000 -v meetapp-data:/data \
-  -e SESSION_SECRET="uzun-rastgele-bir-dize" \
-  -e PUBLIC_URL="https://senin-alan-adin.com" \
-  -e OWNER_EMAIL="sen@ornek.com" -e OWNER_PASSWORD="guclu-bir-sifre" \
+  -e SESSION_SECRET="a-long-random-string" \
+  -e PUBLIC_URL="https://your-domain.com" \
+  -e OWNER_EMAIL="you@example.com" -e OWNER_PASSWORD="a-strong-password" \
   meetapp
 ```
 
-Üretimde mutlaka ayarlanması gerekenler:
+Must be set in production:
 
-| Değişken | Neden |
+| Variable | Why |
 | --- | --- |
-| `NODE_ENV=production` | Oturum çerezini `secure` yapar (yalnız HTTPS) |
-| `SESSION_SECRET` | Uzun ve rastgele olmalı; değişirse herkes çıkış yapar |
-| `PUBLIC_URL` | Stripe ödeme sonrası kullanıcıyı buraya döndürür |
-| `DB_PATH` | Kalıcı diskteki yolu göstermeli (örn. `/data/meetapp.db`) |
-| `OWNER_EMAIL` / `OWNER_PASSWORD` | İlk açılışta sahip hesabı bununla kurulur |
-| `STRIPE_SECRET_KEY` | Gerçek ödeme için; yoksa demo modda kalır |
+| `NODE_ENV=production` | Marks the session cookie `secure` (HTTPS only) |
+| `SESSION_SECRET` | Long and random; changing it signs everyone out |
+| `PUBLIC_URL` | Where Stripe returns the user after payment |
+| `DB_PATH` | Must point at the persistent disk (e.g. `/data/meetapp.db`) |
+| `OWNER_EMAIL` / `OWNER_PASSWORD` | The owner account created on first boot |
+| `STRIPE_SECRET_KEY` | For real payments; without it the app stays in demo mode |
 
-> İlk açılışta veritabanı boşsa demo verisi (örnek etkinlikler ve
-> `irfan@example.com` gibi test hesapları) yüklenir. Gerçek kullanıcılara
-> açmadan önce bunları `#/dashboard`den ya da veritabanından temizle.
+> On first boot an empty database is filled with demo data (sample events and
+> test accounts such as `irfan@example.com`). Clear these from `#/dashboard` or
+> from the database before letting real users in.
 
 ---
 
-## Mimari
+## Architecture
 
 ```
 event-app/
-├── server.js                 Express API + SPA sunumu
-├── db.js                     SQLite şeması (users, events, registrations, payments)
-├── payments.js               Ödeme sağlayıcısı (Stripe REST / demo)
-├── messages.js               Sunucu mesajlarının çevirileri (tr / en)
-├── config.js                 Ortam değişkenlerinden yapılandırma
-├── seed.js                   Demo verisi
-├── capacitor.config.json     Native paketleme
-├── Dockerfile                Üretim imajı (veri /data'da)
+├── server.js                 Express API + serves the SPA
+├── db.js                     SQLite schema (users, events, registrations, payments)
+├── payments.js               Payment provider (Stripe REST / demo)
+├── messages.js               Translations for server messages (tr / en)
+├── config.js                 Configuration from environment variables
+├── seed.js                   Demo data
+├── capacitor.config.json     Native packaging
+├── Dockerfile                Production image (data in /data)
 ├── tools/
-│   ├── make-icons.js         PNG ikon üreteci (bağımlılıksız)
-│   └── smoke-test.js         Uçtan uca test
+│   ├── make-icons.js         PNG icon generator (no dependencies)
+│   └── smoke-test.js         End-to-end test
 └── public/
-    ├── index.html            Uygulama kabuğu
-    ├── app.js                Hash tabanlı yönlendirici + tüm ekranlar
-    ├── i18n.js               Arayüz çevirileri ve dil yönetimi
-    ├── style.css             Tasarım belirteçleri, açık/koyu tema, duyarlı yerleşim
-    ├── manifest.webmanifest  PWA tanımı
+    ├── index.html            App shell
+    ├── app.js                Hash router + every screen
+    ├── i18n.js               Interface translations and language handling
+    ├── style.css             Design tokens, light/dark theme, responsive layout
+    ├── manifest.webmanifest  PWA definition
     ├── sw.js                 Service worker
-    └── icons/                Üretilmiş ikonlar
+    └── icons/                Generated icons
 ```
 
-Derleme adımı yok. `public/` içindeki dosyalar tarayıcıya olduğu gibi gider;
-bu yüzden Capacitor da aynı klasörü paketleyebilir.
+There is no build step. The files in `public/` go to the browser as they are,
+which is also why Capacitor can package that same folder.
 
-### Veri modeli
+### Data model
 
-- **users** — ad, e-posta, bcrypt şifre özeti, rol (`user` / `owner`)
-- **events** — organizatör, tarih, mekân, kontenjan, kuruş cinsinden ücret, durum
-- **registrations** — etkinlik + kullanıcı (benzersiz çift), durum, bilet kodu, giriş zamanı
-- **payments** — kayıt, tutar, sağlayıcı, sağlayıcı referansı, durum, komisyon dağılımı
+- **users** — name, email, bcrypt password hash, role (`user` / `owner`)
+- **events** — host, date, venue, capacity, price in minor units, status
+- **registrations** — event + user (unique pair), status, ticket code, check-in time
+- **payments** — registration, amount, provider, provider reference, status, commission split
 
-Kontenjan kontrolü, kayıt ve ödeme oluşturma tek bir SQLite işlemi (transaction)
-içinde yapılır; yarım kalmış durum oluşmaz.
+The capacity check, the registration and the payment are created inside a single
+SQLite transaction, so no half-finished state can survive.
 
 ### API
 
-| Yöntem | Yol | Açıklama |
+| Method | Path | Description |
 | --- | --- | --- |
-| `GET` | `/api/health` | Canlılık kontrolü (hosting sağlayıcıları için) |
-| `GET` | `/api/config` | Uygulama adı, para birimi, ödeme modu, desteklenen diller |
-| `POST` | `/api/auth/register` · `/login` · `/logout` | Oturum yönetimi |
-| `GET` `PATCH` | `/api/me` | Profil |
-| `GET` | `/api/events` | Arama + kategori/şehir filtresi |
-| `GET` | `/api/events/:id` | Detay + katılımcılar |
-| `POST` | `/api/events` | Etkinlik oluştur |
-| `POST` | `/api/events/:id/cancel` | Etkinliği iptal et (organizatör) |
-| `POST` | `/api/events/:id/join` | Yer ayır → ücretsizse onay, ücretliyse ödeme başlat |
-| `GET` | `/api/payments/:id` | Ödeme durumu |
-| `POST` | `/api/payments/:id/confirm` | Ödemeyi tamamla (demo kart ya da Stripe doğrulaması) |
-| `POST` | `/api/registrations/:id/cancel` | İptal + iade |
-| `GET` | `/api/events/:id/attendees` | Katılımcı listesi (organizatör) |
-| `POST` | `/api/events/:id/checkin` | Bilet kodunu doğrula (organizatör) |
-| `GET` | `/api/my/registrations` · `/my/events` · `/my/payments` | Kullanıcının kendi verisi |
-| `GET` | `/api/owner/summary` · `/owner/payments` | Gelir paneli (yalnız uygulama sahibi) |
+| `GET` | `/api/health` | Liveness probe (for hosting providers) |
+| `GET` | `/api/config` | App name, currency, payment mode, supported languages |
+| `POST` | `/api/auth/register` · `/login` · `/logout` | Session handling |
+| `GET` `PATCH` | `/api/me` | Profile |
+| `GET` | `/api/events` | Search + category/city filters |
+| `GET` | `/api/events/:id` | Detail + attendees |
+| `POST` | `/api/events` | Create an event |
+| `POST` | `/api/events/:id/cancel` | Cancel an event (host) |
+| `POST` | `/api/events/:id/join` | Reserve a spot → confirmed if free, otherwise start payment |
+| `GET` | `/api/payments/:id` | Payment status |
+| `POST` | `/api/payments/:id/confirm` | Complete a payment (demo card or Stripe verification) |
+| `POST` | `/api/registrations/:id/cancel` | Cancel + refund |
+| `GET` | `/api/events/:id/attendees` | Attendee list (host) |
+| `POST` | `/api/events/:id/checkin` | Validate a ticket code (host) |
+| `GET` | `/api/my/registrations` · `/my/events` · `/my/payments` | The user's own data |
+| `GET` | `/api/owner/summary` · `/owner/payments` | Revenue dashboard (owner only) |
 
-### Güvenlik
+### Security
 
-- Şifreler bcrypt ile saklanır; oturumlar `httpOnly` çerezle taşınır ve SQLite'ta tutulur.
-- Helmet + içerik güvenlik politikası; giriş ve ödeme uçlarında hız sınırı.
-- Yetki kontrolleri sunucuda: katılımcı listesi ve giriş kontrolü yalnız
-  organizatöre, gelir paneli yalnız `owner` rolüne açıktır.
-- Kullanıcıdan gelen tüm metinler arayüzde kaçışlanarak basılır (XSS koruması);
-  çeviri yer tutucularına giren değerler de aynı şekilde kaçışlanır.
-- Üretimde `NODE_ENV=production` ile çerez `secure` olur; `SESSION_SECRET`
-  mutlaka değiştirilmelidir.
+- Passwords are hashed with bcrypt; sessions travel in an `httpOnly` cookie and
+  are stored in SQLite.
+- Helmet plus a content security policy; rate limits on the auth and payment
+  endpoints.
+- Authorization is enforced server-side: the attendee list and check-in are open
+  only to the host, the revenue dashboard only to the `owner` role.
+- Every user-supplied string is escaped before rendering (XSS), including values
+  interpolated into translation placeholders.
+- In production `NODE_ENV=production` makes the cookie `secure`, and
+  `SESSION_SECRET` must be changed.
 
 ---
 
-## Test
+## Testing
 
 ```bash
 npm run smoke
 ```
 
-41 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
-reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
-etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
-yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı
-(`X-Lang`, `?lang=`, varsayılana düşme) ve çevrilmiş hata mesajları.
+41 checks: signup validation, search, payment required for paid events, declined
+card, successful payment and ticket generation, duplicate-join guard, instant
+confirmation for free events, host check-in and its reuse guard, authorization
+boundaries, refunds and how they land in the revenue report, language
+negotiation (`X-Lang`, `?lang=`, falling back to the default) and translated
+validation messages.

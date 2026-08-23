@@ -1,4 +1,4 @@
-> **Also in this repo:** [`event-app/`](event-app/) — **Buluş**, a Meetup-style event
+> **Also in this repo:** [`event-app/`](event-app/) — **MeetApp**, a Meetup-style event
 > app (web + installable PWA + Capacitor native shell) where users join events such
 > as a volleyball match and pay the participation fee in-app, with all payments
 > collected by the app owner. See [`event-app/README.md`](event-app/README.md).

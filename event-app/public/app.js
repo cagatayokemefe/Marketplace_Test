@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Buluş — istemci uygulaması
+   MeetApp — istemci uygulaması
    Tek sayfalık, hash tabanlı yönlendirici. Derleme adımı yok; hem tarayıcıda
    hem de Capacitor ile paketlenmiş native kabukta aynı dosya çalışır.
 
@@ -18,12 +18,12 @@
   var state = {
     user: null,
     config: {
-      appName: "Buluş",
+      appName: "MeetApp",
       currency: "TRY",
       currencySymbol: "₺",
       paymentProvider: "demo",
       commissionRate: 0.1,
-      ownerName: "Buluş",
+      ownerName: "MeetApp",
       demoCards: null,
     },
     // "*" = filtre yok. Kategori/şehir değerleri veritabanındaki hâlleriyle
@@ -199,12 +199,12 @@
   function tabs() {
     var list = [
       { href: "#/", ico: "🔍", label: t("tab.discover"), key: "discover" },
-      { href: "#/etkinliklerim", ico: "🎟️", label: t("tab.myEvents"), key: "myevents" },
-      { href: "#/olustur", ico: "➕", label: t("tab.create"), key: "create" },
-      { href: "#/profil", ico: "👤", label: t("tab.profile"), key: "profile" },
+      { href: "#/my-events", ico: "🎟️", label: t("tab.myEvents"), key: "myevents" },
+      { href: "#/create", ico: "➕", label: t("tab.create"), key: "create" },
+      { href: "#/profile", ico: "👤", label: t("tab.profile"), key: "profile" },
     ];
     if (state.user && state.user.role === "owner") {
-      list[3] = { href: "#/panel", ico: "📊", label: t("tab.panel"), key: "owner" };
+      list[3] = { href: "#/dashboard", ico: "📊", label: t("tab.panel"), key: "owner" };
     }
     return list;
   }
@@ -224,7 +224,7 @@
     var list = tabs();
     var navLinks = list.concat(
       state.user && state.user.role === "owner"
-        ? [{ href: "#/profil", ico: "👤", label: t("tab.profile"), key: "profile" }]
+        ? [{ href: "#/profile", ico: "👤", label: t("tab.profile"), key: "profile" }]
         : [],
     );
 
@@ -261,11 +261,11 @@
     var avatar = document.getElementById("appbar-avatar");
     avatar.setAttribute("aria-label", t("a11y.profile"));
     if (state.user) {
-      avatar.setAttribute("href", "#/profil");
+      avatar.setAttribute("href", "#/profile");
       avatar.innerHTML =
         '<span class="avatar">' + h(initialsOf(state.user.name)) + "</span>";
     } else {
-      avatar.setAttribute("href", "#/giris");
+      avatar.setAttribute("href", "#/login");
       avatar.innerHTML =
         '<span class="btn btn-primary btn-sm" style="min-height:34px">' +
         h(t("nav.signIn")) +
@@ -337,7 +337,7 @@
     var next = current === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
     try {
-      localStorage.setItem("bulus.theme", next);
+      localStorage.setItem("meetapp.theme", next);
     } catch (e) {
       /* yoksay */
     }
@@ -370,7 +370,7 @@
         : "";
 
     return (
-      '<article class="event-card" data-href="#/etkinlik/' +
+      '<article class="event-card" data-href="#/event/' +
       ev.id +
       '"><div class="cover">' +
       h(ev.cover) +
@@ -452,7 +452,7 @@
             h(t("discover.emptyTitle")) +
             "</h3><p>" +
             h(t("discover.emptyBody")) +
-            '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">' +
+            '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/create">' +
             h(t("discover.emptyCta")) +
             "</a></p></div>";
           return;
@@ -622,9 +622,9 @@
             ? '<div class="card"><h2 class="section-title" style="margin-top:0">' +
               h(t("detail.hostTools")) +
               '</h2><div style="display:flex;gap:10px;flex-wrap:wrap">' +
-              '<a class="btn btn-ghost" href="#/etkinlik/' +
+              '<a class="btn btn-ghost" href="#/event/' +
               ev.id +
-              '/katilimcilar">' +
+              '/attendees">' +
               h(t("detail.attendeeListCta")) +
               "</a>" +
               (ev.status === "published"
@@ -676,14 +676,14 @@
       button = '<button class="btn" disabled>' + h(t("action.eventPast")) + "</button>";
     } else if (ev.isOrganizer) {
       button =
-        '<a class="btn btn-ghost" href="#/etkinlik/' +
+        '<a class="btn btn-ghost" href="#/event/' +
         ev.id +
-        '/katilimcilar">' +
+        '/attendees">' +
         h(t("action.seeAttendees")) +
         "</a>";
     } else if (joined) {
       button =
-        '<a class="btn btn-primary" href="#/bilet/' +
+        '<a class="btn btn-primary" href="#/ticket/' +
         ev.myRegistration.id +
         '">' +
         h(t("action.showTicket")) +
@@ -717,8 +717,8 @@
     if (joinBtn) {
       joinBtn.addEventListener("click", function () {
         if (!state.user) {
-          sessionStorage.setItem("bulus.next", "#/etkinlik/" + ev.id);
-          go("#/giris");
+          sessionStorage.setItem("meetapp.next", "#/event/" + ev.id);
+          go("#/login");
           return;
         }
         joinBtn.disabled = true;
@@ -728,14 +728,14 @@
           .then(function (res) {
             if (res.status === "confirmed") {
               toast(t("toast.joined"));
-              go("#/etkinliklerim");
+              go("#/my-events");
               return;
             }
             if (res.mode === "stripe" && res.checkoutUrl) {
               window.location.href = res.checkoutUrl;
               return;
             }
-            go("#/odeme/" + res.paymentId);
+            go("#/checkout/" + res.paymentId);
           })
           .catch(function (err) {
             toast(err.message, "long");
@@ -804,13 +804,13 @@
             method: "POST",
             body: { sessionId: sessionId },
           }).then(function () {
-            go("#/bilet/" + data.registration.id);
+            go("#/ticket/" + data.registration.id);
             toast(t("toast.paid"));
           });
         }
 
         if (data.payment.status === "paid") {
-          go("#/bilet/" + data.registration.id);
+          go("#/ticket/" + data.registration.id);
           return;
         }
 
@@ -827,7 +827,7 @@
     var cards = state.config.demoCards;
 
     view.innerHTML =
-      '<a href="#/etkinlik/' +
+      '<a href="#/event/' +
       ev.id +
       '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
       h(t("checkout.back")) +
@@ -931,7 +931,7 @@
       })
         .then(function () {
           toast(t("toast.paid"));
-          go("#/bilet/" + data.registration.id);
+          go("#/ticket/" + data.registration.id);
         })
         .catch(function (err) {
           errEl.textContent = err.message;
@@ -964,7 +964,7 @@
 
         var ev = reg.event;
         view.innerHTML =
-          '<a href="#/etkinliklerim" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
+          '<a href="#/my-events" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
           h(t("ticket.back")) +
           '</a><div style="max-width:460px;margin:0 auto"><div class="ticket">' +
           '<div style="font-size:40px">' +
@@ -992,7 +992,7 @@
             reg.amountMinor ? money(reg.amountMinor, reg.currency) : t("card.free"),
           ) +
           '</div><div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">' +
-          '<a class="btn btn-ghost" href="#/etkinlik/' +
+          '<a class="btn btn-ghost" href="#/event/' +
           ev.id +
           '">' +
           h(t("ticket.eventPage")) +
@@ -1014,7 +1014,7 @@
             api("/registrations/" + reg.id + "/cancel", { method: "POST" })
               .then(function (res) {
                 toast(res.refunded ? t("toast.cancelledRefunded") : t("toast.cancelled"));
-                go("#/etkinliklerim");
+                go("#/my-events");
               })
               .catch(function (err) {
                 toast(err.message, "long");
@@ -1034,31 +1034,31 @@
     renderShell("myevents");
     document.body.classList.remove("has-action-bar");
 
-    if (!state.user) return requireLogin("#/etkinliklerim");
+    if (!state.user) return requireLogin("#/my-events");
 
-    var tab = query.get("sekme") === "organizator" ? "organizator" : "katilim";
+    var tab = query.get("tab") === "hosting" ? "hosting" : "going";
 
     view.innerHTML =
       '<div class="page-head"><div><h1 class="page-title">' +
       h(t("my.title")) +
       '</h1></div></div><div class="chips">' +
       '<button class="chip ' +
-      (tab === "katilim" ? "active" : "") +
-      '" data-tab="katilim">' +
+      (tab === "going" ? "active" : "") +
+      '" data-tab="going">' +
       h(t("my.tabJoined")) +
       '</button><button class="chip ' +
-      (tab === "organizator" ? "active" : "") +
-      '" data-tab="organizator">' +
+      (tab === "hosting" ? "active" : "") +
+      '" data-tab="hosting">' +
       h(t("my.tabHosted")) +
       '</button></div><div id="me-slot"><div class="skeleton"></div></div>';
 
     view.querySelectorAll("[data-tab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        go("#/etkinliklerim?sekme=" + btn.getAttribute("data-tab"));
+        go("#/my-events?tab=" + btn.getAttribute("data-tab"));
       });
     });
 
-    if (tab === "katilim") loadMyRegistrations();
+    if (tab === "going") loadMyRegistrations();
     else loadMyOrganized();
   }
 
@@ -1114,7 +1114,7 @@
             ? '<span class="badge ok">' + h(t("status.checkedIn")) + "</span>"
             : '<span class="badge ok">' + h(t("status.confirmed")) + "</span>";
 
-    var target = r.status === "confirmed" ? "#/bilet/" + r.id : "#/etkinlik/" + r.eventId;
+    var target = r.status === "confirmed" ? "#/ticket/" + r.id : "#/event/" + r.eventId;
 
     return (
       '<article class="event-card" data-href="' +
@@ -1145,7 +1145,7 @@
           h(t("my.emptyHostedTitle")) +
           "</h3><p>" +
           h(t("my.emptyHostedBody")) +
-          '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">' +
+          '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/create">' +
           h(t("my.emptyHostedCta")) +
           "</a></p></div>";
         return;
@@ -1156,9 +1156,9 @@
         data.events
           .map(function (ev) {
             return (
-              '<article class="event-card" data-href="#/etkinlik/' +
+              '<article class="event-card" data-href="#/event/' +
               ev.id +
-              '/katilimcilar"><div class="cover">' +
+              '/attendees"><div class="cover">' +
               h(ev.cover) +
               '</div><div class="event-body"><div class="event-date">' +
               h(dateShort(ev.startsAt)) +
@@ -1191,7 +1191,7 @@
   function viewAttendees(eventId) {
     renderShell("myevents");
     document.body.classList.remove("has-action-bar");
-    if (!state.user) return requireLogin("#/etkinlik/" + eventId + "/katilimcilar");
+    if (!state.user) return requireLogin("#/event/" + eventId + "/attendees");
     loading();
 
     Promise.all([api("/events/" + eventId), api("/events/" + eventId + "/attendees")])
@@ -1204,7 +1204,7 @@
         });
 
         view.innerHTML =
-          '<a href="#/etkinlik/' +
+          '<a href="#/event/' +
           ev.id +
           '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
           h(t("att.back")) +
@@ -1321,7 +1321,7 @@
   function viewCreate() {
     renderShell("create");
     document.body.classList.remove("has-action-bar");
-    if (!state.user) return requireLogin("#/olustur");
+    if (!state.user) return requireLogin("#/create");
 
     var covers = ["🏐", "⚽", "🏀", "🎾", "🧘", "🏃", "🌲", "💻", "🎨", "🎸", "☕", "🎉"];
     var now = new Date(Date.now() + 24 * 3600 * 1000);
@@ -1464,7 +1464,7 @@
       })
         .then(function (res) {
           toast(t("toast.eventPublished"));
-          go("#/etkinlik/" + res.event.id);
+          go("#/event/" + res.event.id);
         })
         .catch(function (err) {
           errEl.textContent = err.message;
@@ -1480,7 +1480,7 @@
   function viewProfile() {
     renderShell("profile");
     document.body.classList.remove("has-action-bar");
-    if (!state.user) return requireLogin("#/profil");
+    if (!state.user) return requireLogin("#/profile");
 
     var u = state.user;
 
@@ -1501,7 +1501,7 @@
         : "") +
       "</div>" +
       (u.role === "owner"
-        ? '<div class="card"><a class="btn btn-primary btn-full" href="#/panel">' +
+        ? '<div class="card"><a class="btn btn-primary btn-full" href="#/dashboard">' +
           h(t("profile.openPanel")) +
           "</a></div>"
         : "") +
@@ -1648,7 +1648,7 @@
   function viewOwner() {
     renderShell("owner");
     document.body.classList.remove("has-action-bar");
-    if (!state.user) return requireLogin("#/panel");
+    if (!state.user) return requireLogin("#/dashboard");
     loading();
 
     Promise.all([api("/owner/summary"), api("/owner/payments")])
@@ -1802,8 +1802,8 @@
   // ── Görünüm: Giriş / kayıt ───────────────────────────────────────────────
 
   function requireLogin(next) {
-    sessionStorage.setItem("bulus.next", next);
-    go("#/giris");
+    sessionStorage.setItem("meetapp.next", next);
+    go("#/login");
   }
 
   function viewAuth(mode) {
@@ -1855,14 +1855,14 @@
           h(t("auth.fill")) +
           "</button><br><b>" +
           h(t("auth.ownerAccount")) +
-          '</b> / owner1234 &nbsp;<button data-fill="owner@bulus.app|owner1234">' +
+          '</b> / owner1234 &nbsp;<button data-fill="owner@meetapp.app|owner1234">' +
           h(t("auth.fill")) +
           "</button></div>"
         : "") +
       '</div><div class="auth-switch">' +
       (isLogin
-        ? h(t("auth.noAccount")) + ' <a href="#/kayit">' + h(t("auth.register")) + "</a>"
-        : h(t("auth.haveAccount")) + ' <a href="#/giris">' + h(t("auth.signIn")) + "</a>") +
+        ? h(t("auth.noAccount")) + ' <a href="#/signup">' + h(t("auth.register")) + "</a>"
+        : h(t("auth.haveAccount")) + ' <a href="#/login">' + h(t("auth.signIn")) + "</a>") +
       ' · <a href="#/">' +
       h(t("auth.browse")) +
       "</a></div></div>";
@@ -1895,8 +1895,8 @@
       api(isLogin ? "/auth/login" : "/auth/register", { method: "POST", body: body })
         .then(function (res) {
           state.user = res.user;
-          var next = sessionStorage.getItem("bulus.next") || "#/";
-          sessionStorage.removeItem("bulus.next");
+          var next = sessionStorage.getItem("meetapp.next") || "#/";
+          sessionStorage.removeItem("meetapp.next");
           toast(t("toast.welcome", { name: res.user.name.split(" ")[0] }));
           go(next);
         })
@@ -1929,17 +1929,17 @@
     window.scrollTo(0, 0);
 
     var m;
-    if (path === "/" || path === "/kesfet") return viewDiscover();
-    if (path === "/giris") return viewAuth("login");
-    if (path === "/kayit") return viewAuth("register");
-    if ((m = path.match(/^\/etkinlik\/(\d+)\/katilimcilar$/))) return viewAttendees(m[1]);
-    if ((m = path.match(/^\/etkinlik\/(\d+)$/))) return viewEventDetail(m[1]);
-    if ((m = path.match(/^\/odeme\/(\d+)$/))) return viewCheckout(m[1], route.query);
-    if ((m = path.match(/^\/bilet\/(\d+)$/))) return viewTicket(m[1]);
-    if (path === "/etkinliklerim") return viewMyEvents(route.query);
-    if (path === "/olustur") return viewCreate();
-    if (path === "/profil") return viewProfile();
-    if (path === "/panel") return viewOwner();
+    if (path === "/" || path === "/discover") return viewDiscover();
+    if (path === "/login") return viewAuth("login");
+    if (path === "/signup") return viewAuth("register");
+    if ((m = path.match(/^\/event\/(\d+)\/attendees$/))) return viewAttendees(m[1]);
+    if ((m = path.match(/^\/event\/(\d+)$/))) return viewEventDetail(m[1]);
+    if ((m = path.match(/^\/checkout\/(\d+)$/))) return viewCheckout(m[1], route.query);
+    if ((m = path.match(/^\/ticket\/(\d+)$/))) return viewTicket(m[1]);
+    if (path === "/my-events") return viewMyEvents(route.query);
+    if (path === "/create") return viewCreate();
+    if (path === "/profile") return viewProfile();
+    if (path === "/dashboard") return viewOwner();
 
     renderShell("");
     errorView(t("common.pageNotFound"));

@@ -1,6 +1,6 @@
 {
-  "name": "Buluş — Etkinlik bul, katıl, öde",
-  "short_name": "Buluş",
+  "name": "MeetApp — Etkinlik bul, katıl, öde",
+  "short_name": "MeetApp",
   "description": "Voleybol, halı saha, yoga, atölye… Yakınındaki etkinliği bul, yerini ödemeyle garantile.",
   "lang": "tr",
   "dir": "ltr",
@@ -42,13 +42,13 @@
     {
       "name": "Biletlerim",
       "short_name": "Biletlerim",
-      "url": "./#/etkinliklerim",
+      "url": "./#/my-events",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Etkinlik oluştur",
       "short_name": "Oluştur",
-      "url": "./#/olustur",
+      "url": "./#/create",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }
   ]

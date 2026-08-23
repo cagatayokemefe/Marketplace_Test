@@ -120,7 +120,7 @@ function seed() {
         "Kapalı salonda 6v6 voleybol. Her seviyeye açık, karışık takımlar kuruyoruz. " +
         "Salon ücreti kişi başına bölünüyor, ödemeni uygulamadan yaptığında yerin garanti. " +
         "File, top ve skorboard bizden; sen sadece spor ayakkabınla gel.",
-      category: "Spor",
+      category: "Sports",
       cover: "🏐",
       city: "İstanbul",
       venue: "Kadıköy Spor Salonu",
@@ -130,14 +130,14 @@ function seed() {
       capacity: 12,
       price_minor: 15000,
       currency: config.currency,
-      level: "Herkes",
+      level: "All",
     },
     {
       organizer_id: zeynep.id,
       title: "Plaj Voleybolu — Caddebostan",
       description:
         "Sahilde 4v4 plaj voleybolu. Antrenman değil, keyif maçı. Sonrasında sahilde çay içiyoruz.",
-      category: "Spor",
+      category: "Sports",
       cover: "🏖️",
       city: "İstanbul",
       venue: "Caddebostan Sahil Sahaları",
@@ -147,14 +147,14 @@ function seed() {
       capacity: 16,
       price_minor: 10000,
       currency: config.currency,
-      level: "Başlangıç",
+      level: "Beginner",
     },
     {
       organizer_id: mehmet.id,
       title: "Halı Saha Futbol — Perşembe",
       description:
         "Perşembe akşamı 7v7 halı saha. Kaleci aranıyor! Ücrete saha kirası ve su dahil.",
-      category: "Spor",
+      category: "Sports",
       cover: "⚽",
       city: "Ankara",
       venue: "Çankaya Halı Saha",
@@ -164,14 +164,14 @@ function seed() {
       capacity: 14,
       price_minor: 12000,
       currency: config.currency,
-      level: "Orta",
+      level: "Intermediate",
     },
     {
       organizer_id: irfan.id,
       title: "Belgrad Ormanı Sabah Yürüyüşü",
       description:
         "8 km'lik keyifli bir parkur. Ücretsiz, sadece katılımcı sayısını bilmek için kayıt alıyoruz.",
-      category: "Doğa",
+      category: "Outdoors",
       cover: "🌲",
       city: "İstanbul",
       venue: "Belgrad Ormanı Neşet Suyu Girişi",
@@ -181,14 +181,14 @@ function seed() {
       capacity: 30,
       price_minor: 0,
       currency: config.currency,
-      level: "Herkes",
+      level: "All",
     },
     {
       organizer_id: mehmet.id,
       title: "Başlangıç Seviyesi Yoga Atölyesi",
       description:
         "Nefes ve temel duruşlar üzerine 90 dakikalık atölye. Mat salonda mevcut.",
-      category: "Sağlık",
+      category: "Wellness",
       cover: "🧘",
       city: "İzmir",
       venue: "Alsancak Yoga Stüdyo",
@@ -198,14 +198,14 @@ function seed() {
       capacity: 18,
       price_minor: 25000,
       currency: config.currency,
-      level: "Başlangıç",
+      level: "Beginner",
     },
     {
       organizer_id: zeynep.id,
       title: "Kod & Kahve: JavaScript Buluşması",
       description:
         "Kısa sunumlar, sonrasında serbest sohbet. Kahve ve kurabiye ücrete dahil.",
-      category: "Teknoloji",
+      category: "Tech",
       cover: "💻",
       city: "İstanbul",
       venue: "Levent Coworking",
@@ -215,7 +215,7 @@ function seed() {
       capacity: 40,
       price_minor: 8000,
       currency: config.currency,
-      level: "Herkes",
+      level: "All",
     },
   ];
 

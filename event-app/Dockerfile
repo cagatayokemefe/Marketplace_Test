@@ -1,4 +1,4 @@
-# Buluş — üretim imajı
+# MeetApp — üretim imajı
 # Kalıcı veri /data klasörüne yazılır; sunucuda buraya bir volume bağla.
 
 FROM node:22-slim
@@ -19,7 +19,7 @@ COPY . .
 ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
-    DB_PATH=/data/bulus.db
+    DB_PATH=/data/meetapp.db
 
 RUN mkdir -p /data
 VOLUME ["/data"]

@@ -73,8 +73,8 @@ async function createCheckout({ payment, event, user, baseUrl }) {
 
   const session = await stripeRequest("/checkout/sessions", {
     mode: "payment",
-    success_url: `${baseUrl}/#/odeme/${payment.id}?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl}/#/etkinlik/${event.id}?iptal=1`,
+    success_url: `${baseUrl}/#/checkout/${payment.id}?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl}/#/event/${event.id}?canceled=1`,
     customer_email: user.email,
     client_reference_id: String(payment.id),
     metadata: {

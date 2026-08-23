@@ -34,7 +34,7 @@ db.exec(`
     organizer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     title        TEXT    NOT NULL,
     description  TEXT    NOT NULL DEFAULT '',
-    category     TEXT    NOT NULL DEFAULT 'Spor',
+    category     TEXT    NOT NULL DEFAULT 'Sports',
     cover        TEXT    NOT NULL DEFAULT '🎉',
     city         TEXT    NOT NULL DEFAULT 'İstanbul',
     venue        TEXT    NOT NULL DEFAULT '',
@@ -44,7 +44,7 @@ db.exec(`
     capacity     INTEGER NOT NULL DEFAULT 20 CHECK(capacity > 0),
     price_minor  INTEGER NOT NULL DEFAULT 0 CHECK(price_minor >= 0),
     currency     TEXT    NOT NULL DEFAULT 'TRY',
-    level        TEXT    NOT NULL DEFAULT 'Herkes',
+    level        TEXT    NOT NULL DEFAULT 'All',
     status       TEXT    NOT NULL DEFAULT 'published'
                          CHECK(status IN ('published','cancelled')),
     created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))

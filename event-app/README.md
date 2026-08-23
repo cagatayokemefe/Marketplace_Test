@@ -1,4 +1,4 @@
-# Buluş — etkinlik bul, katıl, öde
+# MeetApp — etkinlik bul, katıl, öde
 
 Meetup benzeri bir etkinlik uygulaması. Biri voleybol maçı açar, katılmak isteyen
 kişi uygulamadan yerini ayırtır, katılım ücretini uygulama üzerinden öder ve
@@ -36,7 +36,7 @@ halı saha, yoga, doğa yürüyüşü etkinlikleri) otomatik yüklenir.
 | --- | --- | --- | --- |
 | Katılımcı | `irfan@example.com` | `irfan1234` | Etkinliklere katılır, öder, bilet alır |
 | Organizatör | `zeynep@example.com` | `zeynep1234` | Kendi etkinliklerinin katılımcı listesi + giriş kontrolü |
-| **Uygulama sahibi** | `owner@bulus.app` | `owner1234` | Gelir paneli: tüm tahsilat, komisyon, organizatörlere borç |
+| **Uygulama sahibi** | `owner@meetapp.app` | `owner1234` | Gelir paneli: tüm tahsilat, komisyon, organizatörlere borç |
 
 ### Dil
 
@@ -86,7 +86,7 @@ npm run icons    # uygulama ikonlarını yeniden üretir
 - Her ödeme kaydında `commission_minor` (sahibin payı) ve
   `organizer_share_minor` (organizatöre borç) ayrı ayrı tutulur.
 - Komisyon oranı `COMMISSION_RATE` ile ayarlanır (varsayılan `0.10` = %10).
-- Uygulama sahibi `#/panel` ekranında toplam tahsilatı, komisyonu,
+- Uygulama sahibi `#/dashboard` ekranında toplam tahsilatı, komisyonu,
   organizatörlere olan borcu, iadeleri ve ödeme dökümünü görür.
 
 Tutarlar veritabanında **kuruş** (tam sayı) olarak saklanır — kayan nokta
@@ -176,7 +176,7 @@ Native kabuk API'ye HTTP üzerinden ulaşmalıdır. `capacitor.config.json`
 içine sunucunun adresini ekle:
 
 ```json
-"server": { "url": "https://bulus.ornek.com", "androidScheme": "https" }
+"server": { "url": "https://meetapp.example.com", "androidScheme": "https" }
 ```
 
 Arayüz zaten dokunmatik hedef boyutlarına, `safe-area-inset` değerlerine ve
@@ -199,12 +199,12 @@ Depoda hazır bir `Dockerfile` var: veriyi `/data` klasörüne yazar, `/api/heal
 ucuyla canlılık bildirir ve `0.0.0.0` üzerinden dinler.
 
 ```bash
-docker build -t bulus .
-docker run -p 3000:3000 -v bulus-data:/data \
+docker build -t meetapp .
+docker run -p 3000:3000 -v meetapp-data:/data \
   -e SESSION_SECRET="uzun-rastgele-bir-dize" \
   -e PUBLIC_URL="https://senin-alan-adin.com" \
   -e OWNER_EMAIL="sen@ornek.com" -e OWNER_PASSWORD="guclu-bir-sifre" \
-  bulus
+  meetapp
 ```
 
 Üretimde mutlaka ayarlanması gerekenler:
@@ -214,13 +214,13 @@ docker run -p 3000:3000 -v bulus-data:/data \
 | `NODE_ENV=production` | Oturum çerezini `secure` yapar (yalnız HTTPS) |
 | `SESSION_SECRET` | Uzun ve rastgele olmalı; değişirse herkes çıkış yapar |
 | `PUBLIC_URL` | Stripe ödeme sonrası kullanıcıyı buraya döndürür |
-| `DB_PATH` | Kalıcı diskteki yolu göstermeli (örn. `/data/bulus.db`) |
+| `DB_PATH` | Kalıcı diskteki yolu göstermeli (örn. `/data/meetapp.db`) |
 | `OWNER_EMAIL` / `OWNER_PASSWORD` | İlk açılışta sahip hesabı bununla kurulur |
 | `STRIPE_SECRET_KEY` | Gerçek ödeme için; yoksa demo modda kalır |
 
 > İlk açılışta veritabanı boşsa demo verisi (örnek etkinlikler ve
 > `irfan@example.com` gibi test hesapları) yüklenir. Gerçek kullanıcılara
-> açmadan önce bunları `#/panel`den ya da veritabanından temizle.
+> açmadan önce bunları `#/dashboard`den ya da veritabanından temizle.
 
 ---
 

@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, viewport-fit=cover"
     />
-    <title>Buluş — Etkinlik bul, katıl, öde</title>
+    <title>MeetApp — Etkinlik bul, katıl, öde</title>
     <meta
       name="description"
       content="Voleybol, halı saha, yoga, atölye… Yakınındaki etkinliği bul, yerini ödemeyle garantile."
@@ -15,7 +15,7 @@
     <script>
       // Tema, ilk boyamadan önce uygulanır (yanıp sönme olmasın diye).
       (function () {
-        var stored = localStorage.getItem("bulus.theme");
+        var stored = localStorage.getItem("meetapp.theme");
         var theme =
           stored ||
           (window.matchMedia &&
@@ -34,7 +34,7 @@
     <meta name="theme-color" content="#e11d48" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Buluş" />
+    <meta name="apple-mobile-web-app-title" content="MeetApp" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   </head>
 
@@ -43,7 +43,7 @@
       <div class="appbar-inner">
         <a href="#/" class="brand">
           <span class="brand-mark">🎟️</span>
-          <span>Buluş</span>
+          <span>MeetApp</span>
         </a>
 
         <nav class="nav-desktop" id="nav-desktop"></nav>
@@ -71,7 +71,7 @@
         >
           🌙
         </button>
-        <a href="#/profil" id="appbar-avatar" aria-label="Profil"></a>
+        <a href="#/profile" id="appbar-avatar" aria-label="Profil"></a>
       </div>
     </header>
 

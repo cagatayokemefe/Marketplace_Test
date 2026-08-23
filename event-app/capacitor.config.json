@@ -1,6 +1,6 @@
 {
-  "appId": "app.bulus.event",
-  "appName": "Buluş",
+  "appId": "app.meetapp.event",
+  "appName": "MeetApp",
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {

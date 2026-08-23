@@ -1,8 +1,8 @@
-/* Buluş — service worker
+/* MeetApp — service worker
    Uygulama kabuğunu önbelleğe alır; API istekleri her zaman ağdan gider.
    Böylece uygulama telefona kurulabilir ve bağlantı kopsa bile açılır. */
 
-const CACHE = "bulus-shell-v2";
+const CACHE = "meetapp-shell-v1";
 
 const SHELL = [
   "./",

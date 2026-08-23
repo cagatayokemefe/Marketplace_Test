@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Buluş — arayüz çevirileri
+   MeetApp — arayüz çevirileri
    Yeni dil eklemek için: LANGS'e bir satır, DICT'e aynı anahtarlarla bir nesne.
    Eksik anahtarlar varsayılan dile düşer, o da yoksa anahtarın kendisi basılır.
    ════════════════════════════════════════════════════════════════════════════ */
@@ -7,7 +7,7 @@
 window.I18N = (function () {
   "use strict";
 
-  var STORAGE_KEY = "bulus.lang";
+  var STORAGE_KEY = "meetapp.lang";
   var FALLBACK = "tr";
 
   var LANGS = [
@@ -17,8 +17,8 @@ window.I18N = (function () {
 
   // Etkinlik kategorisi ve seviyesi veritabanında Türkçe saklanır (filtreler bu
   // değerlerle çalışır); ekranda gösterilirken çevrilir.
-  var CATEGORIES = ["Spor", "Doğa", "Sağlık", "Teknoloji", "Sanat", "Müzik", "Sosyal"];
-  var LEVELS = ["Herkes", "Başlangıç", "Orta", "İleri"];
+  var CATEGORIES = ["Sports", "Outdoors", "Wellness", "Tech", "Art", "Music", "Social"];
+  var LEVELS = ["All", "Beginner", "Intermediate", "Advanced"];
 
   var DICT = {
     tr: {
@@ -179,7 +179,7 @@ window.I18N = (function () {
       "create.venuePlaceholder": "Kadıköy Spor Salonu",
       "create.address": "Adres",
       "create.addressPlaceholder": "Caferağa Mah. Spor Cad. No:12",
-      "create.start": "Başlangıç",
+      "create.start": "Beginner",
       "create.duration": "Süre (saat)",
       "create.capacity": "Kontenjan",
       "create.price": "Kişi başı ücret ({symbol})",
@@ -233,7 +233,7 @@ window.I18N = (function () {
 
       "auth.welcomeBack": "Tekrar hoş geldin",
       "auth.welcomeBackSub": "Etkinliklerine devam et.",
-      "auth.joinTitle": "Buluş'a katıl",
+      "auth.joinTitle": "MeetApp'a katıl",
       "auth.joinSub": "Birkaç saniyede hesabını oluştur.",
       "auth.name": "Ad soyad",
       "auth.namePlaceholder": "İrfan Yılmaz",
@@ -270,18 +270,18 @@ window.I18N = (function () {
       "toast.welcome": "Hoş geldin, {name}!",
       "toast.languageChanged": "Dil Türkçe olarak ayarlandı.",
 
-      "category.Spor": "Spor",
-      "category.Doğa": "Doğa",
-      "category.Sağlık": "Sağlık",
-      "category.Teknoloji": "Teknoloji",
-      "category.Sanat": "Sanat",
-      "category.Müzik": "Müzik",
-      "category.Sosyal": "Sosyal",
+      "category.Sports": "Spor",
+      "category.Outdoors": "Doğa",
+      "category.Wellness": "Sağlık",
+      "category.Tech": "Teknoloji",
+      "category.Art": "Sanat",
+      "category.Music": "Müzik",
+      "category.Social": "Sosyal",
 
-      "level.Herkes": "Herkes",
-      "level.Başlangıç": "Başlangıç",
-      "level.Orta": "Orta",
-      "level.İleri": "İleri",
+      "level.All": "Herkes",
+      "level.Beginner": "Başlangıç",
+      "level.Intermediate": "Orta",
+      "level.Advanced": "İleri",
     },
 
     en: {
@@ -496,7 +496,7 @@ window.I18N = (function () {
 
       "auth.welcomeBack": "Welcome back",
       "auth.welcomeBackSub": "Pick up where you left off.",
-      "auth.joinTitle": "Join Buluş",
+      "auth.joinTitle": "Join MeetApp",
       "auth.joinSub": "Create your account in seconds.",
       "auth.name": "Full name",
       "auth.namePlaceholder": "Irfan Yilmaz",
@@ -533,18 +533,18 @@ window.I18N = (function () {
       "toast.welcome": "Welcome, {name}!",
       "toast.languageChanged": "Language set to English.",
 
-      "category.Spor": "Sports",
-      "category.Doğa": "Outdoors",
-      "category.Sağlık": "Wellness",
-      "category.Teknoloji": "Tech",
-      "category.Sanat": "Art",
-      "category.Müzik": "Music",
-      "category.Sosyal": "Social",
+      "category.Sports": "Sports",
+      "category.Outdoors": "Outdoors",
+      "category.Wellness": "Wellness",
+      "category.Tech": "Tech",
+      "category.Art": "Art",
+      "category.Music": "Music",
+      "category.Social": "Social",
 
-      "level.Herkes": "All levels",
-      "level.Başlangıç": "Beginner",
-      "level.Orta": "Intermediate",
-      "level.İleri": "Advanced",
+      "level.All": "All levels",
+      "level.Beginner": "Beginner",
+      "level.Intermediate": "Intermediate",
+      "level.Advanced": "Advanced",
     },
   };
 

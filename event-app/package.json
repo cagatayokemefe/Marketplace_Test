@@ -1,8 +1,8 @@
 {
-  "name": "bulus-event-app",
+  "name": "meetapp",
   "version": "1.0.0",
   "private": true,
-  "description": "Bulus - etkinlik kesfet, katil, uygulama uzerinden ode (Meetup benzeri, web + PWA + Capacitor)",
+  "description": "MeetApp - discover events, join, and pay in the app (web + PWA + Capacitor)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

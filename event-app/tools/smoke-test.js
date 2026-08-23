@@ -14,7 +14,7 @@ const path = require("path");
 const fs = require("fs");
 
 const tmpDb = path.join(
-  fs.mkdtempSync(path.join(os.tmpdir(), "bulus-smoke-")),
+  fs.mkdtempSync(path.join(os.tmpdir(), "meetapp-smoke-")),
   "test.db",
 );
 process.env.DB_PATH = tmpDb;
@@ -67,7 +67,7 @@ function client(baseUrl, lang) {
   await new Promise((resolve) => server.once("listening", resolve));
   const baseUrl = "http://127.0.0.1:" + server.address().port;
 
-  console.log("\nBuluş — duman testi (" + baseUrl + ")\n");
+  console.log("\nMeetApp — duman testi (" + baseUrl + ")\n");
 
   try {
     // ── 1. Genel ayarlar ────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ function client(baseUrl, lang) {
     // ── 9. Uygulama sahibinin geliri ────────────────────────────────────────
     const owner = client(baseUrl);
     r = await owner("POST", "/api/auth/login", {
-      email: "owner@bulus.app",
+      email: "owner@meetapp.app",
       password: "owner1234",
     });
     ok(r.status === 200 && r.data.user.role === "owner", "Uygulama sahibi girişi");

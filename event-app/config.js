@@ -21,7 +21,7 @@ const stripeSecret = (process.env.STRIPE_SECRET_KEY || "").trim();
 
 // Veritabanı ve oturum dosyaları aynı klasörde durur. Sunucuda bu klasör
 // kalıcı diske (volume) bağlanmalıdır; yoksa her dağıtımda veri silinir.
-const dbPath = process.env.DB_PATH || path.join(__dirname, "bulus.db");
+const dbPath = process.env.DB_PATH || path.join(__dirname, "meetapp.db");
 
 const config = {
   port: num(process.env.PORT, 3000),
@@ -34,12 +34,12 @@ const config = {
 
   sessionSecret:
     process.env.SESSION_SECRET ||
-    "bulus-dev-secret-change-me-in-production-please",
+    "meetapp-dev-secret-change-me-in-production-please",
 
   // Uygulama sahibi (tüm ödemelerin toplandığı hesap)
   owner: {
-    name: process.env.OWNER_NAME || "Buluş",
-    email: (process.env.OWNER_EMAIL || "owner@bulus.app").toLowerCase(),
+    name: process.env.OWNER_NAME || "MeetApp",
+    email: (process.env.OWNER_EMAIL || "owner@meetapp.app").toLowerCase(),
     password: process.env.OWNER_PASSWORD || "owner1234",
   },
 

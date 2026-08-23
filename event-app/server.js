@@ -57,7 +57,7 @@ app.use(
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
-    name: "bulus.sid",
+    name: "meetapp.sid",
     cookie: {
       httpOnly: true,
       sameSite: "lax", // Stripe dönüşü üst seviye yönlendirme olduğu için 'lax'
@@ -212,7 +212,7 @@ app.get("/api/health", (req, res) => {
 app.get("/api/config", (req, res) => {
   const owner = db.prepare("SELECT name FROM users WHERE role = 'owner' LIMIT 1").get();
   res.json({
-    appName: "Buluş",
+    appName: "MeetApp",
     paymentProvider: payments.provider,
     currency: config.currency,
     currencySymbol: config.currencySymbol,
@@ -277,7 +277,7 @@ app.post("/api/auth/login", authLimiter, (req, res) => {
 
 app.post("/api/auth/logout", (req, res) => {
   req.session.destroy(() => {
-    res.clearCookie("bulus.sid");
+    res.clearCookie("meetapp.sid");
     res.json({ ok: true });
   });
 });
@@ -383,12 +383,12 @@ app.post("/api/events", requireAuth, (req, res) => {
   const b = req.body || {};
   const title = String(b.title || "").trim();
   const description = String(b.description || "").trim();
-  const category = String(b.category || "Spor").trim();
+  const category = String(b.category || "Sports").trim();
   const cover = String(b.cover || "🎉").trim().slice(0, 8);
   const city = String(b.city || "").trim();
   const venue = String(b.venue || "").trim();
   const address = String(b.address || "").trim();
-  const level = String(b.level || "Herkes").trim();
+  const level = String(b.level || "All").trim();
   const startsAt = String(b.startsAt || "");
   const capacity = Number(b.capacity);
   const priceMinor = Math.round(Number(b.priceMinor));
@@ -1017,7 +1017,7 @@ if (isEmpty()) {
 
 if (require.main === module) {
   app.listen(config.port, config.host, () => {
-    console.log(`\n  Buluş  →  http://localhost:${config.port}`);
+    console.log(`\n  MeetApp  →  http://localhost:${config.port}`);
     console.log(`  Ödeme modu: ${payments.provider}`);
     console.log(`  Uygulama sahibi: ${config.owner.email}\n`);
   });

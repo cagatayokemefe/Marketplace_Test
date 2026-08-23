@@ -1184,3 +1184,61 @@ table.data tr:last-child td {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ── Dil seçici ────────────────────────────────────────────────────────────── */
+
+.lang-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.lang-btn {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.lang-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 120;
+  min-width: 168px;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lang-menu[hidden] {
+  display: none;
+}
+
+.lang-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--text);
+}
+
+.lang-menu button:hover {
+  background: var(--surface-2);
+}
+
+.lang-menu button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

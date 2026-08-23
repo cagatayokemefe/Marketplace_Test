@@ -11,6 +11,7 @@ const bcrypt = require("bcryptjs");
 const db = require("./db");
 const config = require("./config");
 const payments = require("./payments");
+const { t, langOf, SUPPORTED } = require("./messages");
 const { seed, isEmpty, ticketCode } = require("./seed");
 
 const app = express();
@@ -65,7 +66,7 @@ const authLimiter = rateLimit({
   max: 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Çok fazla deneme yaptınız, lütfen biraz sonra tekrar deneyin." },
+  handler: (req, res) => res.status(429).json({ error: t(req, "rate.auth") }),
 });
 
 const payLimiter = rateLimit({
@@ -73,7 +74,7 @@ const payLimiter = rateLimit({
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Çok fazla ödeme denemesi. Lütfen bekleyin." },
+  handler: (req, res) => res.status(429).json({ error: t(req, "rate.pay") }),
 });
 
 // ── Yardımcılar ─────────────────────────────────────────────────────────────
@@ -85,12 +86,12 @@ function baseUrl(req) {
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) {
-    return res.status(401).json({ error: "Bu işlem için giriş yapmalısın." });
+    return res.status(401).json({ error: t(req, "auth.required") });
   }
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.session.userId);
   if (!user) {
     req.session.destroy(() => {});
-    return res.status(401).json({ error: "Oturum bulunamadı." });
+    return res.status(401).json({ error: t(req, "auth.sessionMissing") });
   }
   req.user = user;
   next();
@@ -98,7 +99,7 @@ function requireAuth(req, res, next) {
 
 function requireOwner(req, res, next) {
   if (req.user.role !== "owner") {
-    return res.status(403).json({ error: "Bu alan sadece uygulama sahibine açık." });
+    return res.status(403).json({ error: t(req, "auth.ownerOnly") });
   }
   next();
 }
@@ -201,6 +202,9 @@ app.get("/api/config", (req, res) => {
     currencySymbol: config.currencySymbol,
     commissionRate: config.commissionRate,
     ownerName: owner ? owner.name : config.owner.name,
+    languages: SUPPORTED,
+    defaultLanguage: config.defaultLang,
+    language: langOf(req),
     demoCards: payments.provider === "demo"
       ? {
           success: "4242 4242 4242 4242",
@@ -219,16 +223,16 @@ app.post("/api/auth/register", authLimiter, (req, res) => {
   const city = String(req.body.city || "").trim() || null;
 
   if (name.length < 2 || name.length > 60) {
-    return res.status(400).json({ error: "Ad soyad 2–60 karakter olmalı." });
+    return res.status(400).json({ error: t(req, "auth.nameLength") });
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return res.status(400).json({ error: "Geçerli bir e-posta gir." });
+    return res.status(400).json({ error: t(req, "auth.invalidEmail") });
   }
   if (password.length < 8) {
-    return res.status(400).json({ error: "Şifre en az 8 karakter olmalı." });
+    return res.status(400).json({ error: t(req, "auth.passwordShort") });
   }
   if (db.prepare("SELECT 1 FROM users WHERE email = ?").get(email)) {
-    return res.status(409).json({ error: "Bu e-posta zaten kayıtlı." });
+    return res.status(409).json({ error: t(req, "auth.emailTaken") });
   }
 
   const info = db
@@ -248,7 +252,7 @@ app.post("/api/auth/login", authLimiter, (req, res) => {
 
   const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
-    return res.status(401).json({ error: "E-posta veya şifre hatalı." });
+    return res.status(401).json({ error: t(req, "auth.badCredentials") });
   }
 
   req.session.userId = user.id;
@@ -276,7 +280,7 @@ app.patch("/api/me", requireAuth, (req, res) => {
     req.body.phone !== undefined ? String(req.body.phone).trim() : req.user.phone;
 
   if (name.length < 2 || name.length > 60) {
-    return res.status(400).json({ error: "Ad soyad 2–60 karakter olmalı." });
+    return res.status(400).json({ error: t(req, "auth.nameLength") });
   }
 
   db.prepare("UPDATE users SET name = ?, city = ?, bio = ?, phone = ? WHERE id = ?").run(
@@ -342,7 +346,7 @@ app.get("/api/events", (req, res) => {
 
 app.get("/api/events/:id", (req, res) => {
   const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Etkinlik bulunamadı." });
+  if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
 
   const event = shapeEvent(row, req.session.userId);
   const attendees = db
@@ -374,21 +378,21 @@ app.post("/api/events", requireAuth, (req, res) => {
   const priceMinor = Math.round(Number(b.priceMinor));
 
   if (title.length < 3 || title.length > 120) {
-    return res.status(400).json({ error: "Başlık 3–120 karakter olmalı." });
+    return res.status(400).json({ error: t(req, "validate.title") });
   }
-  if (!city) return res.status(400).json({ error: "Şehir gerekli." });
+  if (!city) return res.status(400).json({ error: t(req, "validate.city") });
   const start = new Date(startsAt);
   if (Number.isNaN(start.getTime())) {
-    return res.status(400).json({ error: "Geçerli bir tarih/saat seç." });
+    return res.status(400).json({ error: t(req, "validate.date") });
   }
   if (start.getTime() < Date.now() - 60 * 1000) {
-    return res.status(400).json({ error: "Etkinlik tarihi gelecekte olmalı." });
+    return res.status(400).json({ error: t(req, "validate.futureDate") });
   }
   if (!Number.isInteger(capacity) || capacity < 1 || capacity > 1000) {
-    return res.status(400).json({ error: "Kontenjan 1–1000 arasında olmalı." });
+    return res.status(400).json({ error: t(req, "validate.capacity") });
   }
   if (!Number.isInteger(priceMinor) || priceMinor < 0 || priceMinor > 100000000) {
-    return res.status(400).json({ error: "Geçersiz ücret." });
+    return res.status(400).json({ error: t(req, "validate.price") });
   }
 
   const durationHours = Math.min(Math.max(Number(b.durationHours) || 2, 1), 12);
@@ -424,9 +428,9 @@ app.post("/api/events", requireAuth, (req, res) => {
 
 app.post("/api/events/:id/cancel", requireAuth, (req, res) => {
   const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Etkinlik bulunamadı." });
+  if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
   if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
-    return res.status(403).json({ error: "Bu etkinliği sen oluşturmadın." });
+    return res.status(403).json({ error: t(req, "event.notOrganizer") });
   }
   db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
   res.json({ ok: true });
@@ -434,9 +438,9 @@ app.post("/api/events/:id/cancel", requireAuth, (req, res) => {
 
 app.get("/api/events/:id/attendees", requireAuth, (req, res) => {
   const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Etkinlik bulunamadı." });
+  if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
   if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
-    return res.status(403).json({ error: "Katılımcı listesi sadece organizatöre açık." });
+    return res.status(403).json({ error: t(req, "event.attendeesOrganizerOnly") });
   }
 
   const rows = db
@@ -470,9 +474,9 @@ app.get("/api/events/:id/attendees", requireAuth, (req, res) => {
 
 app.post("/api/events/:id/checkin", requireAuth, (req, res) => {
   const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: "Etkinlik bulunamadı." });
+  if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
   if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
-    return res.status(403).json({ error: "Giriş kontrolü sadece organizatöre açık." });
+    return res.status(403).json({ error: t(req, "event.checkinOrganizerOnly") });
   }
 
   const code = String(req.body.code || "").trim().toUpperCase();
@@ -480,12 +484,12 @@ app.post("/api/events/:id/checkin", requireAuth, (req, res) => {
     .prepare("SELECT * FROM registrations WHERE event_id = ? AND ticket_code = ?")
     .get(row.id, code);
 
-  if (!reg) return res.status(404).json({ error: "Bu koda ait bilet yok." });
+  if (!reg) return res.status(404).json({ error: t(req, "ticket.notFound") });
   if (reg.status !== "confirmed") {
-    return res.status(409).json({ error: "Bilet geçerli değil (" + reg.status + ")." });
+    return res.status(409).json({ error: t(req, "ticket.invalid", { status: reg.status }) });
   }
   if (reg.checked_in_at) {
-    return res.status(409).json({ error: "Bu bilet zaten kullanıldı." });
+    return res.status(409).json({ error: t(req, "ticket.used") });
   }
 
   db.prepare(
@@ -504,15 +508,15 @@ app.post(
   payLimiter,
   asyncRoute(async (req, res) => {
     const event = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-    if (!event) return res.status(404).json({ error: "Etkinlik bulunamadı." });
+    if (!event) return res.status(404).json({ error: t(req, "event.notFound") });
     if (event.status !== "published") {
-      return res.status(409).json({ error: "Etkinlik iptal edilmiş." });
+      return res.status(409).json({ error: t(req, "event.cancelled") });
     }
     if (new Date(event.starts_at).getTime() < Date.now()) {
-      return res.status(409).json({ error: "Bu etkinlik geçmişte kalmış." });
+      return res.status(409).json({ error: t(req, "event.past") });
     }
     if (event.organizer_id === req.user.id) {
-      return res.status(409).json({ error: "Kendi etkinliğine zaten kayıtlısın." });
+      return res.status(409).json({ error: t(req, "event.ownEvent") });
     }
 
     const existing = db
@@ -520,12 +524,12 @@ app.post(
       .get(event.id, req.user.id);
 
     if (existing && existing.status === "confirmed") {
-      return res.status(409).json({ error: "Bu etkinliğe zaten katılıyorsun." });
+      return res.status(409).json({ error: t(req, "event.alreadyJoined") });
     }
 
     const attendeeCount = attendeeCountStmt.get(event.id).c;
     if (attendeeCount >= event.capacity) {
-      return res.status(409).json({ error: "Kontenjan dolu." });
+      return res.status(409).json({ error: t(req, "event.full") });
     }
 
     // Ücretsiz etkinlik: anında onay
@@ -610,7 +614,11 @@ app.post(
       db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
       return res
         .status(502)
-        .json({ error: "Ödeme başlatılamadı: " + (err.message || "bilinmeyen hata") });
+        .json({
+          error: t(req, "payment.startFailed", {
+            reason: err.message || t(req, "common.unknownError"),
+          }),
+        });
     }
 
     if (checkout.providerRef) {
@@ -635,7 +643,7 @@ app.post(
 app.get("/api/payments/:id", requireAuth, (req, res) => {
   const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(req.params.id);
   if (!payment || payment.user_id !== req.user.id) {
-    return res.status(404).json({ error: "Ödeme bulunamadı." });
+    return res.status(404).json({ error: t(req, "payment.notFound") });
   }
   const event = db.prepare("SELECT * FROM events WHERE id = ?").get(payment.event_id);
   const reg = db
@@ -672,7 +680,7 @@ app.post(
   asyncRoute(async (req, res) => {
     const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(req.params.id);
     if (!payment || payment.user_id !== req.user.id) {
-      return res.status(404).json({ error: "Ödeme bulunamadı." });
+      return res.status(404).json({ error: t(req, "payment.notFound") });
     }
     if (payment.status === "paid") {
       const reg = db
@@ -681,14 +689,14 @@ app.post(
       return res.json({ status: "paid", ticketCode: reg.ticket_code });
     }
     if (payment.status !== "pending") {
-      return res.status(409).json({ error: "Bu ödeme artık tamamlanamaz." });
+      return res.status(409).json({ error: t(req, "payment.notCompletable") });
     }
 
     const event = db.prepare("SELECT * FROM events WHERE id = ?").get(payment.event_id);
     const attendeeCount = attendeeCountStmt.get(event.id).c;
     if (attendeeCount >= event.capacity) {
       db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
-      return res.status(409).json({ error: "Kontenjan bu sırada doldu. Ücret alınmadı." });
+      return res.status(409).json({ error: t(req, "payment.capacityFilled") });
     }
 
     let cardLast4 = null;
@@ -697,16 +705,18 @@ app.post(
     if (payment.provider === "stripe") {
       const sessionId = String(req.body.sessionId || payment.provider_ref || "");
       if (!sessionId) {
-        return res.status(400).json({ error: "Ödeme oturumu bulunamadı." });
+        return res.status(400).json({ error: t(req, "payment.sessionMissing") });
       }
       let verified;
       try {
         verified = await payments.verifyCheckout(sessionId);
       } catch (err) {
-        return res.status(502).json({ error: "Ödeme doğrulanamadı: " + err.message });
+        return res
+          .status(502)
+          .json({ error: t(req, "payment.verifyFailed", { reason: err.message }) });
       }
       if (!verified.paid) {
-        return res.status(402).json({ error: "Ödeme henüz tamamlanmamış." });
+        return res.status(402).json({ error: t(req, "payment.notPaid") });
       }
       providerRef = verified.providerRef;
     } else {
@@ -717,20 +727,20 @@ app.post(
       const holder = String(req.body.holder || "").trim();
 
       if (digits.length < 15 || digits.length > 19) {
-        return res.status(400).json({ error: "Kart numarası geçersiz." });
+        return res.status(400).json({ error: t(req, "payment.cardInvalid") });
       }
       if (!/^\d{2}\s*\/\s*\d{2}$/.test(expiry)) {
-        return res.status(400).json({ error: "Son kullanma tarihi AA/YY biçiminde olmalı." });
+        return res.status(400).json({ error: t(req, "payment.expiryInvalid") });
       }
       if (cvc.length < 3 || cvc.length > 4) {
-        return res.status(400).json({ error: "CVC geçersiz." });
+        return res.status(400).json({ error: t(req, "payment.cvcInvalid") });
       }
       if (holder.length < 3) {
-        return res.status(400).json({ error: "Kart üzerindeki ismi gir." });
+        return res.status(400).json({ error: t(req, "payment.holderRequired") });
       }
       if (digits === "4000000000000002") {
         db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
-        return res.status(402).json({ error: "Kart reddedildi. Başka bir kart dene." });
+        return res.status(402).json({ error: t(req, "payment.declined") });
       }
       cardLast4 = digits.slice(-4);
       providerRef = "demo_" + Date.now().toString(36);
@@ -763,10 +773,10 @@ app.post(
   asyncRoute(async (req, res) => {
     const reg = db.prepare("SELECT * FROM registrations WHERE id = ?").get(req.params.id);
     if (!reg || reg.user_id !== req.user.id) {
-      return res.status(404).json({ error: "Kayıt bulunamadı." });
+      return res.status(404).json({ error: t(req, "reg.notFound") });
     }
     if (reg.status === "cancelled") {
-      return res.status(409).json({ error: "Kayıt zaten iptal edilmiş." });
+      return res.status(409).json({ error: t(req, "reg.alreadyCancelled") });
     }
 
     const event = db.prepare("SELECT * FROM events WHERE id = ?").get(reg.event_id);
@@ -781,16 +791,14 @@ app.post(
     let refunded = false;
     if (payment) {
       if (hoursToStart < 6) {
-        return res.status(409).json({
-          error:
-            "Etkinliğe 6 saatten az kaldığı için ücret iadesi yapılamıyor. " +
-            "İptal için organizatörle iletişime geç.",
-        });
+        return res.status(409).json({ error: t(req, "reg.refundWindow") });
       }
       try {
         await payments.refund(payment);
       } catch (err) {
-        return res.status(502).json({ error: "İade başarısız: " + err.message });
+        return res
+          .status(502)
+          .json({ error: t(req, "reg.refundFailed", { reason: err.message }) });
       }
       db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(payment.id);
       refunded = true;
@@ -970,7 +978,7 @@ app.get("/api/owner/payments", requireAuth, requireOwner, (req, res) => {
 
 // ── SPA fallback ────────────────────────────────────────────────────────────
 
-app.get("/api/*", (req, res) => res.status(404).json({ error: "Bulunamadı." }));
+app.get("/api/*", (req, res) => res.status(404).json({ error: t(req, "common.notFound") }));
 
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -981,7 +989,7 @@ app.get("*", (req, res) => {
 app.use((err, req, res, next) => {
   console.error("Sunucu hatası:", err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: "Beklenmeyen bir hata oluştu." });
+  res.status(500).json({ error: t(req, "server.error") });
 });
 
 // ── Başlat ──────────────────────────────────────────────────────────────────

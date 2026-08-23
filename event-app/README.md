@@ -15,7 +15,7 @@ Tek bir kod tabanı üç yerde çalışır:
 
 Arayüz mobil öncelikli tasarlandı: telefonda alt sekme çubuğu ve sabit ödeme
 butonu, masaüstünde üst menü ve iki sütunlu detay sayfası kullanılır. Açık/koyu
-tema desteklenir.
+tema ve **Türkçe / İngilizce dil desteği** vardır.
 
 ---
 
@@ -37,6 +37,12 @@ halı saha, yoga, doğa yürüyüşü etkinlikleri) otomatik yüklenir.
 | Katılımcı | `irfan@example.com` | `irfan1234` | Etkinliklere katılır, öder, bilet alır |
 | Organizatör | `zeynep@example.com` | `zeynep1234` | Kendi etkinliklerinin katılımcı listesi + giriş kontrolü |
 | **Uygulama sahibi** | `owner@bulus.app` | `owner1234` | Gelir paneli: tüm tahsilat, komisyon, organizatörlere borç |
+
+### Dil
+
+Üst çubuktaki **TR / EN** düğmesinden ya da Profil sayfasındaki dil bölümünden
+anında değiştirilir. Detaylar için aşağıdaki [Dil desteği](#dil-desteği)
+bölümüne bak.
 
 Yararlı komutlar:
 
@@ -102,6 +108,45 @@ değişikliği gerekmez. Stripe SDK'sı kurulmaz; REST API'ye doğrudan istek at
 
 ---
 
+## Dil desteği
+
+Uygulama Türkçe ve İngilizce çalışır. Dil, üst çubuktaki **TR / EN** düğmesinden
+ya da Profil sayfasından değiştirilir; seçim `localStorage`'a yazılır ve sonraki
+açılışlarda hatırlanır. Seçim yoksa tarayıcı dili kullanılır, o da desteklenmiyorsa
+`DEFAULT_LANG` devreye girer.
+
+Çeviri iki katmanda yapılır:
+
+| Katman | Dosya | Kapsam |
+| --- | --- | --- |
+| Arayüz | `public/i18n.js` | Tüm ekran metinleri, butonlar, boş durumlar, bildirimler |
+| Sunucu | `messages.js` | API'nin döndürdüğü hata ve doğrulama mesajları |
+
+İstemci, seçili dili her API isteğinde `X-Lang` başlığıyla gönderir; sunucu
+sırayla `?lang=` sorgusuna, `X-Lang` başlığına, `Accept-Language` başlığına ve
+son olarak `DEFAULT_LANG`'e bakar. Böylece "Şifre en az 8 karakter olmalı" gibi
+mesajlar da kullanıcının dilinde gelir.
+
+Dile bağlı biçimlendirme `Intl` ile yapılır: tarihler (`25 Ağustos 2026 Salı` ↔
+`Tuesday 25 August 2026`), saatler ve para birimi. Tutarlar her dilde kısa
+simgeyle gösterilir (`₺150`).
+
+Kategori ve seviye değerleri veritabanında tek bir kanonik biçimde (Türkçe)
+saklanır, ekranda çevrilir — böylece dil değiştirince filtreler bozulmaz.
+Etkinlik başlığı ve açıklaması ise organizatörün yazdığı içeriktir ve makine
+çevirisine sokulmaz; hangi dilde yazıldıysa öyle görünür.
+
+### Yeni dil eklemek
+
+1. `public/i18n.js` içindeki `LANGS` dizisine bir satır ekle
+   (`{ code, label, flag, locale }`).
+2. Aynı dosyadaki `DICT`'e aynı anahtarlarla bir çeviri nesnesi ekle.
+3. `messages.js` içindeki `DICT`'e sunucu mesajlarını ekle.
+
+Eksik bırakılan anahtarlar varsayılan dile düşer, uygulama kırılmaz.
+
+---
+
 ## Telefona uygulama olarak kurmak
 
 ### 1. PWA (en hızlı yol, mağaza gerekmez)
@@ -151,6 +196,7 @@ event-app/
 ├── server.js                 Express API + SPA sunumu
 ├── db.js                     SQLite şeması (users, events, registrations, payments)
 ├── payments.js               Ödeme sağlayıcısı (Stripe REST / demo)
+├── messages.js               Sunucu mesajlarının çevirileri (tr / en)
 ├── config.js                 Ortam değişkenlerinden yapılandırma
 ├── seed.js                   Demo verisi
 ├── capacitor.config.json     Native paketleme
@@ -160,6 +206,7 @@ event-app/
 └── public/
     ├── index.html            Uygulama kabuğu
     ├── app.js                Hash tabanlı yönlendirici + tüm ekranlar
+    ├── i18n.js               Arayüz çevirileri ve dil yönetimi
     ├── style.css             Tasarım belirteçleri, açık/koyu tema, duyarlı yerleşim
     ├── manifest.webmanifest  PWA tanımı
     ├── sw.js                 Service worker
@@ -183,7 +230,7 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 
 | Yöntem | Yol | Açıklama |
 | --- | --- | --- |
-| `GET` | `/api/config` | Uygulama adı, para birimi, ödeme modu |
+| `GET` | `/api/config` | Uygulama adı, para birimi, ödeme modu, desteklenen diller |
 | `POST` | `/api/auth/register` · `/login` · `/logout` | Oturum yönetimi |
 | `GET` `PATCH` | `/api/me` | Profil |
 | `GET` | `/api/events` | Arama + kategori/şehir filtresi |
@@ -205,7 +252,8 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 - Helmet + içerik güvenlik politikası; giriş ve ödeme uçlarında hız sınırı.
 - Yetki kontrolleri sunucuda: katılımcı listesi ve giriş kontrolü yalnız
   organizatöre, gelir paneli yalnız `owner` rolüne açıktır.
-- Kullanıcıdan gelen tüm metinler arayüzde kaçışlanarak basılır (XSS koruması).
+- Kullanıcıdan gelen tüm metinler arayüzde kaçışlanarak basılır (XSS koruması);
+  çeviri yer tutucularına giren değerler de aynı şekilde kaçışlanır.
 - Üretimde `NODE_ENV=production` ile çerez `secure` olur; `SESSION_SECRET`
   mutlaka değiştirilmelidir.
 
@@ -217,7 +265,8 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 npm run smoke
 ```
 
-35 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
+41 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
 reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
 etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
-yetkisiz erişim reddi, iade ve gelir raporuna yansıması.
+yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı
+(`X-Lang`, `?lang=`, varsayılana düşme) ve çevrilmiş hata mesajları.

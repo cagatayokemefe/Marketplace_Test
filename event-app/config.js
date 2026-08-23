@@ -32,6 +32,10 @@ const config = {
     password: process.env.OWNER_PASSWORD || "owner1234",
   },
 
+  // Sunucu mesajlarının ve ilk açılışın varsayılan dili.
+  // İstemci kendi seçimini X-Lang başlığıyla gönderir.
+  defaultLang: (process.env.DEFAULT_LANG || "tr").toLowerCase(),
+
   currency: process.env.CURRENCY || "TRY",
   currencySymbol: process.env.CURRENCY_SYMBOL || "₺",
 

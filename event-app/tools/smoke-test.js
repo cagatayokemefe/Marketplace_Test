@@ -37,13 +37,14 @@ function ok(condition, label, detail) {
 }
 
 /** Basit çerez taşıyan istemci — her kullanıcı için ayrı bir örnek. */
-function client(baseUrl) {
+function client(baseUrl, lang) {
   let cookie = "";
   return async function call(method, path, body) {
     const res = await fetch(baseUrl + path, {
       method,
       headers: Object.assign(
         { Accept: "application/json" },
+        lang ? { "X-Lang": lang } : {},
         body ? { "Content-Type": "application/json" } : {},
         cookie ? { Cookie: cookie } : {},
       ),
@@ -283,7 +284,50 @@ function client(baseUrl) {
     });
     ok(r.status === 400, "Geçmiş tarihli etkinlik reddediliyor");
 
-    // ── 12. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 12. Dil desteği ─────────────────────────────────────────────────────
+    r = await guest("GET", "/api/config");
+    ok(
+      Array.isArray(r.data.languages) && r.data.languages.includes("en"),
+      "Desteklenen diller /api/config ile bildiriliyor",
+    );
+
+    const english = client(baseUrl, "en");
+    r = await english("GET", "/api/my/registrations");
+    ok(
+      r.status === 401 && /sign in/i.test(r.data.error || ""),
+      "X-Lang: en ile hata mesajı İngilizce geliyor",
+      r.data.error,
+    );
+
+    r = await guest("GET", "/api/my/registrations?lang=en");
+    ok(/sign in/i.test(r.data.error || ""), "?lang=en sorgusu da dili değiştiriyor");
+
+    r = await guest("GET", "/api/my/registrations");
+    ok(
+      /giriş yapmalısın/i.test(r.data.error || ""),
+      "Başlık yokken varsayılan dil (tr) kullanılıyor",
+      r.data.error,
+    );
+
+    const german = client(baseUrl, "de");
+    r = await german("GET", "/api/my/registrations");
+    ok(
+      /giriş yapmalısın/i.test(r.data.error || ""),
+      "Desteklenmeyen dil varsayılana düşüyor",
+    );
+
+    r = await english("POST", "/api/auth/register", {
+      name: "Language Test",
+      email: "lang.test@example.com",
+      password: "123",
+    });
+    ok(
+      r.status === 400 && /at least 8 characters/i.test(r.data.error || ""),
+      "Doğrulama mesajları da çevriliyor",
+      r.data.error,
+    );
+
+    // ── 13. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

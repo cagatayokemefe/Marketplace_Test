@@ -2,10 +2,16 @@
    Buluş — istemci uygulaması
    Tek sayfalık, hash tabanlı yönlendirici. Derleme adımı yok; hem tarayıcıda
    hem de Capacitor ile paketlenmiş native kabukta aynı dosya çalışır.
+
+   Ekrandaki tüm metinler i18n.js'teki sözlükten gelir; dil değişince görünüm
+   yeniden çizilir. Sunucu mesajları için seçilen dil X-Lang başlığıyla gider.
    ════════════════════════════════════════════════════════════════════════════ */
 
 (function () {
   "use strict";
+
+  var I18N = window.I18N;
+  var t = I18N.t;
 
   // ── Durum ────────────────────────────────────────────────────────────────
 
@@ -20,7 +26,9 @@
       ownerName: "Buluş",
       demoCards: null,
     },
-    discover: { q: "", category: "Tümü", city: "Tümü" },
+    // "*" = filtre yok. Kategori/şehir değerleri veritabanındaki hâlleriyle
+    // taşınır, ekranda çevrilir.
+    discover: { q: "", category: "*", city: "*" },
     filters: { categories: [], cities: [] },
   };
 
@@ -47,39 +55,44 @@
 
   function money(minor, currency) {
     var value = (Number(minor) || 0) / 100;
+    var options = {
+      style: "currency",
+      currency: currency || state.config.currency || "TRY",
+      maximumFractionDigits: value % 1 === 0 ? 0 : 2,
+      // Dil ne olursa olsun ₺ gibi kısa simgeyi kullan; "TRY 150" yerine "₺150".
+      currencyDisplay: "narrowSymbol",
+    };
     try {
-      return new Intl.NumberFormat("tr-TR", {
-        style: "currency",
-        currency: currency || state.config.currency || "TRY",
-        maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-      }).format(value);
+      return new Intl.NumberFormat(I18N.locale(), options).format(value);
     } catch (e) {
-      return value.toFixed(2) + " " + (state.config.currencySymbol || "");
+      try {
+        delete options.currencyDisplay;
+        return new Intl.NumberFormat(I18N.locale(), options).format(value);
+      } catch (e2) {
+        return value.toFixed(2) + " " + (state.config.currencySymbol || "");
+      }
     }
   }
 
-  var DAYS = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
-  var MONTHS = [
-    "Oca", "Şub", "Mar", "Nis", "May", "Haz",
-    "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara",
-  ];
+  function fmtDate(date, options) {
+    try {
+      return new Intl.DateTimeFormat(I18N.locale(), options).format(date);
+    } catch (e) {
+      return date.toISOString().slice(0, 16).replace("T", " ");
+    }
+  }
 
   function dateShort(iso) {
     var d = new Date(iso);
     return (
-      DAYS[d.getDay()] +
-      ", " +
-      d.getDate() +
-      " " +
-      MONTHS[d.getMonth()] +
+      fmtDate(d, { weekday: "short", day: "numeric", month: "short" }) +
       " · " +
       timeOf(d)
     );
   }
 
   function dateLong(iso) {
-    var d = new Date(iso);
-    return d.toLocaleDateString("tr-TR", {
+    return fmtDate(new Date(iso), {
       weekday: "long",
       day: "numeric",
       month: "long",
@@ -88,37 +101,39 @@
   }
 
   function timeOf(d) {
-    return (
-      String(d.getHours()).padStart(2, "0") +
-      ":" +
-      String(d.getMinutes()).padStart(2, "0")
-    );
+    return fmtDate(d, { hour: "2-digit", minute: "2-digit", hour12: false });
   }
 
   function countdown(iso) {
     var diff = new Date(iso).getTime() - Date.now();
-    if (diff < 0) return "Tamamlandı";
+    if (diff < 0) return t("time.finished");
     var days = Math.floor(diff / 86400000);
-    if (days >= 1) return days + " gün sonra";
+    if (days >= 1) return t("time.inDays", { count: days });
     var hours = Math.floor(diff / 3600000);
-    if (hours >= 1) return hours + " saat sonra";
-    return Math.max(Math.floor(diff / 60000), 1) + " dk sonra";
+    if (hours >= 1) return t("time.inHours", { count: hours });
+    return t("time.inMinutes", { count: Math.max(Math.floor(diff / 60000), 1) });
   }
 
   function toast(message, kind) {
     toastEl.textContent = message;
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () {
-      toastEl.classList.remove("show");
-    }, kind === "long" ? 4200 : 2600);
+    toastTimer = setTimeout(
+      function () {
+        toastEl.classList.remove("show");
+      },
+      kind === "long" ? 4200 : 2600,
+    );
   }
 
   function api(path, options) {
     options = options || {};
+    var headers = { "X-Lang": I18N.get() };
+    if (options.body) headers["Content-Type"] = "application/json";
+
     return fetch("/api" + path, {
       method: options.method || "GET",
-      headers: options.body ? { "Content-Type": "application/json" } : {},
+      headers: headers,
       body: options.body ? JSON.stringify(options.body) : undefined,
       credentials: "same-origin",
     }).then(function (res) {
@@ -129,7 +144,7 @@
         })
         .then(function (data) {
           if (!res.ok) {
-            var err = new Error(data.error || "Bir hata oluştu.");
+            var err = new Error(data.error || t("common.genericError"));
             err.status = res.status;
             err.data = data;
             throw err;
@@ -153,9 +168,13 @@
 
   function errorView(message) {
     view.innerHTML =
-      '<div class="empty"><div class="e-ico">😕</div><h3>Olmadı</h3><p>' +
+      '<div class="empty"><div class="e-ico">😕</div><h3>' +
+      h(t("common.errorTitle")) +
+      "</h3><p>" +
       h(message) +
-      '</p><p style="margin-top:14px"><a class="btn btn-ghost" href="#/">Keşfet\'e dön</a></p></div>';
+      '</p><p style="margin-top:14px"><a class="btn btn-ghost" href="#/">' +
+      h(t("common.backToDiscover")) +
+      "</a></p></div>";
   }
 
   function initialsOf(name) {
@@ -172,17 +191,23 @@
         return p[0];
       })
       .join("")
-      .toLocaleUpperCase("tr-TR");
+      .toLocaleUpperCase(I18N.locale());
   }
 
-  // ── Kabuk (üst çubuk + sekmeler) ─────────────────────────────────────────
+  // ── Kabuk (üst çubuk + sekmeler + dil seçici) ────────────────────────────
 
-  var TABS = [
-    { href: "#/", ico: "🔍", label: "Keşfet" },
-    { href: "#/etkinliklerim", ico: "🎟️", label: "Etkinliklerim" },
-    { href: "#/olustur", ico: "➕", label: "Oluştur" },
-    { href: "#/profil", ico: "👤", label: "Profil" },
-  ];
+  function tabs() {
+    var list = [
+      { href: "#/", ico: "🔍", label: t("tab.discover"), key: "discover" },
+      { href: "#/etkinliklerim", ico: "🎟️", label: t("tab.myEvents"), key: "myevents" },
+      { href: "#/olustur", ico: "➕", label: t("tab.create"), key: "create" },
+      { href: "#/profil", ico: "👤", label: t("tab.profile"), key: "profile" },
+    ];
+    if (state.user && state.user.role === "owner") {
+      list[3] = { href: "#/panel", ico: "📊", label: t("tab.panel"), key: "owner" };
+    }
+    return list;
+  }
 
   function renderShell(activeKey) {
     var appbar = document.getElementById("appbar");
@@ -191,66 +216,131 @@
 
     appbar.hidden = isAuthRoute;
     tabbar.hidden = isAuthRoute;
-    if (isAuthRoute) return;
-
-    var tabs = TABS.slice();
-    if (state.user && state.user.role === "owner") {
-      tabs[3] = { href: "#/panel", ico: "📊", label: "Panel" };
+    if (isAuthRoute) {
+      renderLangMenu();
+      return;
     }
 
-    var navLinks = tabs.concat(
+    var list = tabs();
+    var navLinks = list.concat(
       state.user && state.user.role === "owner"
-        ? [{ href: "#/profil", ico: "👤", label: "Profil" }]
+        ? [{ href: "#/profil", ico: "👤", label: t("tab.profile"), key: "profile" }]
         : [],
     );
 
     document.getElementById("nav-desktop").innerHTML = navLinks
-      .map(function (t) {
-        var active = t.href === "#/" ? activeKey === "discover" : activeKey === keyOf(t.href);
+      .map(function (item) {
         return (
-          '<a href="' + t.href + '" class="' + (active ? "active" : "") + '">' +
-          h(t.label) +
+          '<a href="' +
+          item.href +
+          '" class="' +
+          (item.key === activeKey ? "active" : "") +
+          '">' +
+          h(item.label) +
           "</a>"
         );
       })
       .join("");
 
-    tabbar.innerHTML = tabs
-      .map(function (t) {
-        var active = t.href === "#/" ? activeKey === "discover" : activeKey === keyOf(t.href);
+    tabbar.innerHTML = list
+      .map(function (item) {
         return (
-          '<a href="' + t.href + '" class="' + (active ? "active" : "") + '">' +
-          '<span class="ico">' + t.ico + "</span><span>" + h(t.label) + "</span></a>"
+          '<a href="' +
+          item.href +
+          '" class="' +
+          (item.key === activeKey ? "active" : "") +
+          '"><span class="ico">' +
+          item.ico +
+          "</span><span>" +
+          h(item.label) +
+          "</span></a>"
         );
       })
       .join("");
 
     var avatar = document.getElementById("appbar-avatar");
+    avatar.setAttribute("aria-label", t("a11y.profile"));
     if (state.user) {
       avatar.setAttribute("href", "#/profil");
       avatar.innerHTML =
         '<span class="avatar">' + h(initialsOf(state.user.name)) + "</span>";
     } else {
-      avatar.innerHTML =
-        '<span class="btn btn-primary btn-sm" style="min-height:34px">Giriş yap</span>';
       avatar.setAttribute("href", "#/giris");
+      avatar.innerHTML =
+        '<span class="btn btn-primary btn-sm" style="min-height:34px">' +
+        h(t("nav.signIn")) +
+        "</span>";
     }
+
+    document.getElementById("theme-toggle").setAttribute("title", t("a11y.theme"));
+    document
+      .getElementById("theme-toggle")
+      .setAttribute("aria-label", t("a11y.theme"));
+
+    renderLangMenu();
   }
 
-  function keyOf(hash) {
-    if (hash === "#/") return "discover";
-    if (hash.indexOf("#/etkinliklerim") === 0) return "myevents";
-    if (hash.indexOf("#/olustur") === 0) return "create";
-    if (hash.indexOf("#/profil") === 0) return "profile";
-    if (hash.indexOf("#/panel") === 0) return "owner";
-    return "";
+  function renderLangMenu() {
+    var btn = document.getElementById("lang-btn");
+    var menu = document.getElementById("lang-menu");
+    if (!btn || !menu) return;
+
+    btn.textContent = I18N.get().toUpperCase();
+    btn.setAttribute("title", t("a11y.language"));
+    btn.setAttribute("aria-label", t("a11y.language"));
+
+    menu.innerHTML = I18N.langs
+      .map(function (lang) {
+        return (
+          '<button type="button" data-lang="' +
+          lang.code +
+          '" class="' +
+          (lang.code === I18N.get() ? "active" : "") +
+          '"><span>' +
+          lang.flag +
+          "</span><span>" +
+          h(lang.label) +
+          "</span></button>"
+        );
+      })
+      .join("");
+
+    menu.querySelectorAll("[data-lang]").forEach(function (item) {
+      item.addEventListener("click", function () {
+        closeLangMenu();
+        changeLanguage(item.getAttribute("data-lang"));
+      });
+    });
   }
+
+  function changeLanguage(code) {
+    if (!I18N.set(code)) return;
+    render();
+    toast(t("toast.languageChanged"));
+  }
+
+  function closeLangMenu() {
+    var menu = document.getElementById("lang-menu");
+    if (menu) menu.hidden = true;
+  }
+
+  document.getElementById("lang-btn").addEventListener("click", function (e) {
+    e.stopPropagation();
+    var menu = document.getElementById("lang-menu");
+    menu.hidden = !menu.hidden;
+  });
+
+  document.addEventListener("click", closeLangMenu);
 
   document.getElementById("theme-toggle").addEventListener("click", function () {
     var current = document.documentElement.getAttribute("data-theme");
     var next = current === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("bulus.theme", next);
+    try {
+      localStorage.setItem("bulus.theme", next);
+    } catch (e) {
+      /* yoksay */
+    }
     this.textContent = next === "dark" ? "☀️" : "🌙";
   });
 
@@ -263,30 +353,43 @@
   // ── Görünüm: Keşfet ──────────────────────────────────────────────────────
 
   function eventCardHtml(ev) {
-    var pricePill = ev.priceMinor === 0
-      ? '<span class="price-pill free">Ücretsiz</span>'
-      : '<span class="price-pill">' + h(money(ev.priceMinor, ev.currency)) + "</span>";
+    var pricePill =
+      ev.priceMinor === 0
+        ? '<span class="price-pill free">' + h(t("card.free")) + "</span>"
+        : '<span class="price-pill">' + h(money(ev.priceMinor, ev.currency)) + "</span>";
 
-    var spots =
-      ev.isFull
-        ? '<span class="badge danger">Kontenjan dolu</span>'
-        : '<span class="badge">' + ev.spotsLeft + " kişilik yer</span>";
+    var spots = ev.isFull
+      ? '<span class="badge danger">' + h(t("card.full")) + "</span>"
+      : '<span class="badge">' +
+        h(t("card.spotsLeft", { count: ev.spotsLeft })) +
+        "</span>";
 
     var joined =
       ev.myRegistration && ev.myRegistration.status === "confirmed"
-        ? '<span class="badge ok">Katılıyorsun</span>'
+        ? '<span class="badge ok">' + h(t("card.joined")) + "</span>"
         : "";
 
     return (
-      '<article class="event-card" data-href="#/etkinlik/' + ev.id + '">' +
-      '<div class="cover">' + h(ev.cover) + "</div>" +
-      '<div class="event-body">' +
-      '<div class="event-date">' + h(dateShort(ev.startsAt)) + "</div>" +
-      '<h3 class="event-title">' + h(ev.title) + "</h3>" +
-      '<div class="event-meta"><span>📍 ' + h(ev.venue || ev.city) + "</span>" +
-      "<span>👥 " + ev.attendeeCount + "/" + ev.capacity + "</span></div>" +
-      '<div class="event-foot">' + pricePill + spots + joined + "</div>" +
-      "</div></article>"
+      '<article class="event-card" data-href="#/etkinlik/' +
+      ev.id +
+      '"><div class="cover">' +
+      h(ev.cover) +
+      '</div><div class="event-body">' +
+      '<div class="event-date">' +
+      h(dateShort(ev.startsAt)) +
+      '</div><h3 class="event-title">' +
+      h(ev.title) +
+      '</h3><div class="event-meta"><span>📍 ' +
+      h(ev.venue || ev.city) +
+      "</span><span>👥 " +
+      ev.attendeeCount +
+      "/" +
+      ev.capacity +
+      '</span></div><div class="event-foot">' +
+      pricePill +
+      spots +
+      joined +
+      "</div></div></article>"
     );
   }
 
@@ -294,23 +397,20 @@
     renderShell("discover");
     document.body.classList.remove("has-action-bar");
 
-    var params = new URLSearchParams();
-    if (state.discover.q) params.set("q", state.discover.q);
-    if (state.discover.category !== "Tümü")
-      params.set("category", state.discover.category);
-    if (state.discover.city !== "Tümü") params.set("city", state.discover.city);
-
-    var head =
+    view.innerHTML =
       '<div class="page-head"><div>' +
-      '<h1 class="page-title">Yakınında neler var?</h1>' +
-      '<p class="page-sub">Etkinliği seç, yerini ödemeyle garantile.</p>' +
-      "</div></div>" +
+      '<h1 class="page-title">' +
+      h(t("discover.title")) +
+      '</h1><p class="page-sub">' +
+      h(t("discover.subtitle")) +
+      "</p></div></div>" +
       '<div class="searchbar"><span class="search-ico">🔍</span>' +
-      '<input id="q" type="search" placeholder="Voleybol, yoga, İstanbul…" value="' +
+      '<input id="q" type="search" placeholder="' +
+      h(t("discover.searchPlaceholder")) +
+      '" value="' +
       h(state.discover.q) +
-      '" /></div>';
-
-    view.innerHTML = head + '<div id="chips-slot"></div><div id="list-slot"></div>';
+      '" /></div>' +
+      '<div id="chips-slot"></div><div id="list-slot"></div>';
 
     var input = document.getElementById("q");
     var typingTimer = null;
@@ -329,13 +429,14 @@
   function loadDiscoverList() {
     var listSlot = document.getElementById("list-slot");
     if (!listSlot) return;
-    listSlot.innerHTML = '<div class="event-grid"><div class="skeleton"></div><div class="skeleton"></div></div>';
+    listSlot.innerHTML =
+      '<div class="event-grid"><div class="skeleton"></div><div class="skeleton"></div></div>';
 
     var params = new URLSearchParams();
     if (state.discover.q) params.set("q", state.discover.q);
-    if (state.discover.category !== "Tümü")
+    if (state.discover.category !== "*")
       params.set("category", state.discover.category);
-    if (state.discover.city !== "Tümü") params.set("city", state.discover.city);
+    if (state.discover.city !== "*") params.set("city", state.discover.city);
 
     api("/events?" + params.toString())
       .then(function (data) {
@@ -347,21 +448,23 @@
 
         if (!data.events.length) {
           slot.innerHTML =
-            '<div class="empty"><div class="e-ico">🗓️</div>' +
-            "<h3>Bu filtreyle etkinlik yok</h3>" +
-            "<p>Aramayı temizle ya da kendi etkinliğini oluştur.</p>" +
-            '<p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">Etkinlik oluştur</a></p></div>';
+            '<div class="empty"><div class="e-ico">🗓️</div><h3>' +
+            h(t("discover.emptyTitle")) +
+            "</h3><p>" +
+            h(t("discover.emptyBody")) +
+            '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">' +
+            h(t("discover.emptyCta")) +
+            "</a></p></div>";
           return;
         }
 
         slot.innerHTML =
-          '<div class="event-grid">' +
-          data.events.map(eventCardHtml).join("") +
-          "</div>";
+          '<div class="event-grid">' + data.events.map(eventCardHtml).join("") + "</div>";
       })
       .catch(function (err) {
         var slot = document.getElementById("list-slot");
-        if (slot) slot.innerHTML = '<div class="alert alert-error">' + h(err.message) + "</div>";
+        if (slot)
+          slot.innerHTML = '<div class="alert alert-error">' + h(err.message) + "</div>";
       });
   }
 
@@ -369,28 +472,37 @@
     var slot = document.getElementById("chips-slot");
     if (!slot) return;
 
-    var categories = ["Tümü"].concat(state.filters.categories || []);
-    var cities = ["Tümü"].concat(state.filters.cities || []);
+    var categories = ["*"].concat(state.filters.categories || []);
+    var cities = ["*"].concat(state.filters.cities || []);
 
     slot.innerHTML =
       '<div class="chips" id="cat-chips">' +
       categories
         .map(function (c) {
+          var label = c === "*" ? t("filter.all") : I18N.category(c);
           return (
             '<button class="chip ' +
             (state.discover.category === c ? "active" : "") +
-            '" data-cat="' + h(c) + '">' + h(c) + "</button>"
+            '" data-cat="' +
+            h(c) +
+            '">' +
+            h(label) +
+            "</button>"
           );
         })
         .join("") +
-      "</div>" +
-      '<div class="chips" id="city-chips">' +
+      '</div><div class="chips" id="city-chips">' +
       cities
         .map(function (c) {
+          var label = c === "*" ? t("filter.allCities") : "📍 " + c;
           return (
             '<button class="chip ' +
             (state.discover.city === c ? "active" : "") +
-            '" data-city="' + h(c) + '">' + (c === "Tümü" ? "Tüm şehirler" : "📍 " + h(c)) + "</button>"
+            '" data-city="' +
+            h(c) +
+            '">' +
+            h(label) +
+            "</button>"
           );
         })
         .join("") +
@@ -429,61 +541,108 @@
             attendees
               .slice(0, 8)
               .map(function (a) {
-                return '<span class="avatar sm" title="' + h(a.name) + '">' + h(a.initials) + "</span>";
+                return (
+                  '<span class="avatar sm" title="' +
+                  h(a.name) +
+                  '">' +
+                  h(a.initials) +
+                  "</span>"
+                );
               })
               .join("") +
-            "</div>" +
-            '<span style="color:var(--muted);font-size:.9rem">' +
-            (attendees.length > 8 ? "+" + (attendees.length - 8) + " kişi daha · " : "") +
-            "toplam " + attendees.length + " katılımcı</span>"
-          : '<span style="color:var(--muted);font-size:.9rem">Henüz kimse katılmadı — ilk sen ol!</span>';
+            '</div><span style="color:var(--muted);font-size:.9rem">' +
+            (attendees.length > 8
+              ? h(t("detail.andMore", { count: attendees.length - 8 }))
+              : "") +
+            h(t("detail.attendeeCount", { count: attendees.length })) +
+            "</span>"
+          : '<span style="color:var(--muted);font-size:.9rem">' +
+            h(t("detail.noAttendees")) +
+            "</span>";
+
+        var capacityText =
+          t("info.capacityValue", { count: ev.attendeeCount, capacity: ev.capacity }) +
+          (ev.isFull
+            ? t("info.capacityFull")
+            : t("info.capacityLeft", { count: ev.spotsLeft }));
 
         var main =
-          '<div class="card">' +
-          '<div class="detail-hero">' +
-          '<div class="cover xl">' + h(ev.cover) + "</div>" +
-          "<div>" +
-          '<div class="event-date">' + h(countdown(ev.startsAt)) + "</div>" +
-          '<h1 class="detail-title">' + h(ev.title) + "</h1>" +
-          '<div class="event-foot">' +
-          '<span class="badge info">' + h(ev.category) + "</span>" +
-          '<span class="badge">' + h(ev.level) + "</span>" +
-          (ev.status === "cancelled" ? '<span class="badge danger">İptal edildi</span>' : "") +
-          "</div></div></div>" +
-
-          '<div class="info-list">' +
-          infoRow("🗓️", "Tarih", dateLong(ev.startsAt) + " · " + timeOf(new Date(ev.startsAt)) +
-            (ev.endsAt ? " – " + timeOf(new Date(ev.endsAt)) : "")) +
-          infoRow("📍", "Yer", (ev.venue ? ev.venue + " · " : "") + ev.city +
-            (ev.address ? "<br><span style='color:var(--muted);font-weight:500;font-size:.86rem'>" + h(ev.address) + "</span>" : ""), true) +
-          infoRow("👥", "Kontenjan", ev.attendeeCount + " / " + ev.capacity + " kişi" +
-            (ev.isFull ? " · dolu" : " · " + ev.spotsLeft + " yer kaldı")) +
-          infoRow("🧑‍💼", "Organizatör", ev.organizer.name) +
-          "</div></div>" +
-
-          (ev.description
-            ? '<div class="card"><h2 class="section-title" style="margin-top:0">Etkinlik hakkında</h2>' +
-              '<p class="desc">' + h(ev.description) + "</p></div>"
+          '<div class="card"><div class="detail-hero">' +
+          '<div class="cover xl">' +
+          h(ev.cover) +
+          '</div><div><div class="event-date">' +
+          h(countdown(ev.startsAt)) +
+          '</div><h1 class="detail-title">' +
+          h(ev.title) +
+          '</h1><div class="event-foot">' +
+          '<span class="badge info">' +
+          h(I18N.category(ev.category)) +
+          '</span><span class="badge">' +
+          h(I18N.level(ev.level)) +
+          "</span>" +
+          (ev.status === "cancelled"
+            ? '<span class="badge danger">' + h(t("detail.cancelledBadge")) + "</span>"
             : "") +
-
-          '<div class="card"><h2 class="section-title" style="margin-top:0">Katılanlar</h2>' +
-          '<div class="attendee-row">' + attendeesHtml + "</div></div>" +
-
+          '</div></div></div><div class="info-list">' +
+          infoRow(
+            "🗓️",
+            t("info.date"),
+            dateLong(ev.startsAt) +
+              " · " +
+              timeOf(new Date(ev.startsAt)) +
+              (ev.endsAt ? " – " + timeOf(new Date(ev.endsAt)) : ""),
+          ) +
+          infoRow(
+            "📍",
+            t("info.place"),
+            h((ev.venue ? ev.venue + " · " : "") + ev.city) +
+              (ev.address
+                ? "<br><span style='color:var(--muted);font-weight:500;font-size:.86rem'>" +
+                  h(ev.address) +
+                  "</span>"
+                : ""),
+            true,
+          ) +
+          infoRow("👥", t("info.capacity"), capacityText) +
+          infoRow("🧑‍💼", t("info.host"), ev.organizer.name) +
+          "</div></div>" +
+          (ev.description
+            ? '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+              h(t("detail.about")) +
+              '</h2><p class="desc">' +
+              h(ev.description) +
+              "</p></div>"
+            : "") +
+          '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+          h(t("detail.attendees")) +
+          '</h2><div class="attendee-row">' +
+          attendeesHtml +
+          "</div></div>" +
           (ev.isOrganizer
-            ? '<div class="card"><h2 class="section-title" style="margin-top:0">Organizatör araçları</h2>' +
-              '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-              '<a class="btn btn-ghost" href="#/etkinlik/' + ev.id + '/katilimcilar">Katılımcı listesi &amp; giriş kontrolü</a>' +
+            ? '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+              h(t("detail.hostTools")) +
+              '</h2><div style="display:flex;gap:10px;flex-wrap:wrap">' +
+              '<a class="btn btn-ghost" href="#/etkinlik/' +
+              ev.id +
+              '/katilimcilar">' +
+              h(t("detail.attendeeListCta")) +
+              "</a>" +
               (ev.status === "published"
-                ? '<button class="btn btn-danger" id="btn-cancel-event">Etkinliği iptal et</button>'
+                ? '<button class="btn btn-danger" id="btn-cancel-event">' +
+                  h(t("detail.cancelEvent")) +
+                  "</button>"
                 : "") +
               "</div></div>"
             : "");
 
-        var side = actionBarHtml(ev, joined);
-
         view.innerHTML =
-          '<a href="#/" class="btn btn-ghost btn-sm" style="margin-bottom:14px">← Keşfet</a>' +
-          '<div class="detail-layout"><div>' + main + '</div><div class="detail-side">' + side + "</div></div>";
+          '<a href="#/" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
+          h(t("detail.backToDiscover")) +
+          '</a><div class="detail-layout"><div>' +
+          main +
+          '</div><div class="detail-side">' +
+          actionBarHtml(ev, joined) +
+          "</div></div>";
 
         wireDetailActions(ev);
       })
@@ -495,41 +654,59 @@
 
   function infoRow(ico, key, value, isHtml) {
     return (
-      '<div class="info-row"><span class="ico">' + ico + "</span><div>" +
-      '<div class="k">' + h(key) + "</div>" +
-      '<div class="v">' + (isHtml ? value : h(value)) + "</div>" +
-      "</div></div>"
+      '<div class="info-row"><span class="ico">' +
+      ico +
+      '</span><div><div class="k">' +
+      h(key) +
+      '</div><div class="v">' +
+      (isHtml ? value : h(value)) +
+      "</div></div></div>"
     );
   }
 
   function actionBarHtml(ev, joined) {
-    var priceLabel = ev.priceMinor === 0 ? "Ücretsiz" : money(ev.priceMinor, ev.currency);
-    var note = ev.priceMinor === 0 ? "katılım ücreti yok" : "kişi başı";
+    var priceLabel =
+      ev.priceMinor === 0 ? t("card.free") : money(ev.priceMinor, ev.currency);
+    var note = ev.priceMinor === 0 ? t("action.noFee") : t("action.perPerson");
 
     var button;
     if (ev.status === "cancelled") {
-      button = '<button class="btn" disabled>Etkinlik iptal edildi</button>';
+      button = '<button class="btn" disabled>' + h(t("action.eventCancelled")) + "</button>";
     } else if (ev.isPast) {
-      button = '<button class="btn" disabled>Bu etkinlik geçti</button>';
+      button = '<button class="btn" disabled>' + h(t("action.eventPast")) + "</button>";
     } else if (ev.isOrganizer) {
-      button = '<a class="btn btn-ghost" href="#/etkinlik/' + ev.id + '/katilimcilar">Katılımcıları gör</a>';
+      button =
+        '<a class="btn btn-ghost" href="#/etkinlik/' +
+        ev.id +
+        '/katilimcilar">' +
+        h(t("action.seeAttendees")) +
+        "</a>";
     } else if (joined) {
       button =
-        '<a class="btn btn-primary" href="#/bilet/' + ev.myRegistration.id + '">Biletimi göster</a>' +
-        '<button class="btn btn-danger btn-sm" id="btn-leave" data-reg="' + ev.myRegistration.id + '">Katılımı iptal et</button>';
+        '<a class="btn btn-primary" href="#/bilet/' +
+        ev.myRegistration.id +
+        '">' +
+        h(t("action.showTicket")) +
+        '</a><button class="btn btn-danger btn-sm" id="btn-leave" data-reg="' +
+        ev.myRegistration.id +
+        '">' +
+        h(t("action.leave")) +
+        "</button>";
     } else if (ev.isFull) {
-      button = '<button class="btn" disabled>Kontenjan dolu</button>';
+      button = '<button class="btn" disabled>' + h(t("action.full")) + "</button>";
     } else {
       button =
         '<button class="btn btn-primary" id="btn-join">' +
-        (ev.priceMinor === 0 ? "Ücretsiz katıl" : "Katıl ve öde") +
+        h(ev.priceMinor === 0 ? t("action.joinFree") : t("action.joinPay")) +
         "</button>";
     }
 
     return (
-      '<div class="action-bar">' +
-      '<div class="price-block"><div class="amount">' + h(priceLabel) + "</div>" +
-      '<div class="label">' + h(note) + "</div></div>" +
+      '<div class="action-bar"><div class="price-block"><div class="amount">' +
+      h(priceLabel) +
+      '</div><div class="label">' +
+      h(note) +
+      "</div></div>" +
       button +
       "</div>"
     );
@@ -545,12 +722,12 @@
           return;
         }
         joinBtn.disabled = true;
-        joinBtn.textContent = "Yer ayrılıyor…";
+        joinBtn.textContent = t("action.joining");
 
         api("/events/" + ev.id + "/join", { method: "POST" })
           .then(function (res) {
             if (res.status === "confirmed") {
-              toast("Kaydın tamam! Görüşmek üzere 🎉");
+              toast(t("toast.joined"));
               go("#/etkinliklerim");
               return;
             }
@@ -563,7 +740,8 @@
           .catch(function (err) {
             toast(err.message, "long");
             joinBtn.disabled = false;
-            joinBtn.textContent = ev.priceMinor === 0 ? "Ücretsiz katıl" : "Katıl ve öde";
+            joinBtn.textContent =
+              ev.priceMinor === 0 ? t("action.joinFree") : t("action.joinPay");
           });
       });
     }
@@ -571,13 +749,13 @@
     var leaveBtn = document.getElementById("btn-leave");
     if (leaveBtn) {
       leaveBtn.addEventListener("click", function () {
-        if (!confirm("Katılımını iptal etmek istediğine emin misin?")) return;
+        if (!confirm(t("confirm.leave"))) return;
         leaveBtn.disabled = true;
         api("/registrations/" + leaveBtn.getAttribute("data-reg") + "/cancel", {
           method: "POST",
         })
           .then(function (res) {
-            toast(res.refunded ? "İptal edildi, ücret iade edildi." : "Katılımın iptal edildi.");
+            toast(res.refunded ? t("toast.cancelledRefunded") : t("toast.cancelled"));
             render();
           })
           .catch(function (err) {
@@ -590,10 +768,10 @@
     var cancelEvent = document.getElementById("btn-cancel-event");
     if (cancelEvent) {
       cancelEvent.addEventListener("click", function () {
-        if (!confirm("Etkinliği iptal etmek üzeresin. Devam edilsin mi?")) return;
+        if (!confirm(t("confirm.cancelEvent"))) return;
         api("/events/" + ev.id + "/cancel", { method: "POST" })
           .then(function () {
-            toast("Etkinlik iptal edildi.");
+            toast(t("toast.eventCancelled"));
             render();
           })
           .catch(function (err) {
@@ -617,14 +795,17 @@
         // Stripe'tan dönüş: ödeme sunucuda doğrulanır.
         if (data.payment.status === "pending" && sessionId) {
           view.innerHTML =
-            '<div class="card"><div class="empty"><div class="e-ico">⏳</div>' +
-            "<h3>Ödemen doğrulanıyor…</h3><p>Bu sayfadan ayrılma.</p></div></div>";
+            '<div class="card"><div class="empty"><div class="e-ico">⏳</div><h3>' +
+            h(t("checkout.verifying")) +
+            "</h3><p>" +
+            h(t("checkout.verifyingBody")) +
+            "</p></div></div>";
           return api("/payments/" + paymentId + "/confirm", {
             method: "POST",
             body: { sessionId: sessionId },
-          }).then(function (res) {
+          }).then(function () {
             go("#/bilet/" + data.registration.id);
-            toast("Ödeme alındı, biletin hazır 🎟️");
+            toast(t("toast.paid"));
           });
         }
 
@@ -643,52 +824,78 @@
   function renderCheckoutForm(data) {
     var ev = data.event;
     var p = data.payment;
-    var demo = state.config.paymentProvider === "demo";
+    var cards = state.config.demoCards;
 
     view.innerHTML =
-      '<a href="#/etkinlik/' + ev.id + '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">← Vazgeç</a>' +
-      '<div class="detail-layout"><div>' +
-      '<div class="card"><h1 class="page-title" style="font-size:1.25rem;margin-bottom:14px">Ödeme</h1>' +
-      (demo
-        ? '<div class="alert alert-info">Demo modu: gerçek para çekilmez. Test kartı ' +
-          "<b>4242 4242 4242 4242</b>, reddedilen kart <b>4000 0000 0000 0002</b>.</div>"
+      '<a href="#/etkinlik/' +
+      ev.id +
+      '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
+      h(t("checkout.back")) +
+      '</a><div class="detail-layout"><div>' +
+      '<div class="card"><h1 class="page-title" style="font-size:1.25rem;margin-bottom:14px">' +
+      h(t("checkout.title")) +
+      "</h1>" +
+      (cards
+        ? '<div class="alert alert-info">' +
+          t("checkout.demoNotice", {
+            success: h(cards.success),
+            declined: h(cards.declined),
+          }) +
+          "</div>"
         : "") +
       '<form id="pay-form" novalidate>' +
       '<div id="pay-error" class="alert alert-error" hidden></div>' +
-      '<div class="field"><label for="holder">Kart üzerindeki isim</label>' +
-      '<input id="holder" autocomplete="cc-name" placeholder="İrfan Yılmaz" required /></div>' +
-      '<div class="field card-input-wrap"><label for="cardNumber">Kart numarası</label>' +
-      '<input id="cardNumber" inputmode="numeric" autocomplete="cc-number" placeholder="4242 4242 4242 4242" maxlength="23" required />' +
+      '<div class="field"><label for="holder">' +
+      h(t("checkout.holder")) +
+      '</label><input id="holder" autocomplete="cc-name" placeholder="' +
+      h(t("checkout.holderPlaceholder")) +
+      '" required /></div>' +
+      '<div class="field card-input-wrap"><label for="cardNumber">' +
+      h(t("checkout.cardNumber")) +
+      '</label><input id="cardNumber" inputmode="numeric" autocomplete="cc-number" ' +
+      'placeholder="4242 4242 4242 4242" maxlength="23" required />' +
       '<span class="card-brands">VISA · MC</span></div>' +
-      '<div class="field-row">' +
-      '<div class="field"><label for="expiry">Son kullanma</label>' +
-      '<input id="expiry" inputmode="numeric" autocomplete="cc-exp" placeholder="12/29" maxlength="5" required /></div>' +
-      '<div class="field"><label for="cvc">CVC</label>' +
-      '<input id="cvc" inputmode="numeric" autocomplete="cc-csc" placeholder="123" maxlength="4" required /></div>' +
-      "</div>" +
+      '<div class="field-row"><div class="field"><label for="expiry">' +
+      h(t("checkout.expiry")) +
+      '</label><input id="expiry" inputmode="numeric" autocomplete="cc-exp" placeholder="' +
+      h(t("checkout.expiryPlaceholder")) +
+      '" maxlength="5" required /></div>' +
+      '<div class="field"><label for="cvc">' +
+      h(t("checkout.cvc")) +
+      '</label><input id="cvc" inputmode="numeric" autocomplete="cc-csc" ' +
+      'placeholder="123" maxlength="4" required /></div></div>' +
       '<button type="submit" class="btn btn-primary btn-full" id="pay-btn">' +
-      h(money(p.amountMinor, p.currency)) + " öde</button>" +
-      '<div class="secure-note">🔒 Ödeme ' + h(state.config.ownerName) + " hesabına aktarılır.</div>" +
-      "</form></div></div>" +
-
+      h(t("checkout.pay", { amount: money(p.amountMinor, p.currency) })) +
+      '</button><div class="secure-note">' +
+      h(t("checkout.secure", { owner: state.config.ownerName })) +
+      "</div></form></div></div>" +
       '<div class="detail-side"><div class="card">' +
-      '<h2 class="section-title" style="margin-top:0">Özet</h2>' +
-      '<div class="event-card" style="box-shadow:none;border:none;padding:0;cursor:default">' +
-      '<div class="cover">' + h(ev.cover) + "</div>" +
-      '<div class="event-body"><h3 class="event-title">' + h(ev.title) + "</h3>" +
-      '<div class="event-meta"><span>' + h(dateShort(ev.startsAt)) + "</span></div>" +
-      '<div class="event-meta"><span>📍 ' + h(ev.venue || ev.city) + "</span></div>" +
-      "</div></div>" +
-      '<div style="margin-top:14px">' +
-      '<div class="summary-row"><span class="k">Katılım ücreti</span><span class="num">' +
-      h(money(p.amountMinor, p.currency)) + "</span></div>" +
-      '<div class="summary-row"><span class="k">Hizmet bedeli</span><span class="num">' +
-      h(money(0, p.currency)) + "</span></div>" +
-      '<div class="summary-row total"><span>Toplam</span><span class="num">' +
-      h(money(p.amountMinor, p.currency)) + "</span></div>" +
-      "</div></div></div></div>";
+      '<h2 class="section-title" style="margin-top:0">' +
+      h(t("checkout.summary")) +
+      '</h2><div class="event-card" style="box-shadow:none;border:none;padding:0;cursor:default">' +
+      '<div class="cover">' +
+      h(ev.cover) +
+      '</div><div class="event-body"><h3 class="event-title">' +
+      h(ev.title) +
+      '</h3><div class="event-meta"><span>' +
+      h(dateShort(ev.startsAt)) +
+      '</span></div><div class="event-meta"><span>📍 ' +
+      h(ev.venue || ev.city) +
+      '</span></div></div></div><div style="margin-top:14px">' +
+      '<div class="summary-row"><span class="k">' +
+      h(t("checkout.fee")) +
+      '</span><span class="num">' +
+      h(money(p.amountMinor, p.currency)) +
+      '</span></div><div class="summary-row"><span class="k">' +
+      h(t("checkout.serviceFee")) +
+      '</span><span class="num">' +
+      h(money(0, p.currency)) +
+      '</span></div><div class="summary-row total"><span>' +
+      h(t("checkout.total")) +
+      '</span><span class="num">' +
+      h(money(p.amountMinor, p.currency)) +
+      "</span></div></div></div></div></div>";
 
-    // Kart alanı biçimlendirme
     var cardInput = document.getElementById("cardNumber");
     cardInput.addEventListener("input", function () {
       var digits = cardInput.value.replace(/\D/g, "").slice(0, 19);
@@ -711,7 +918,7 @@
       var errEl = document.getElementById("pay-error");
       errEl.hidden = true;
       btn.disabled = true;
-      btn.textContent = "Ödeme alınıyor…";
+      btn.textContent = t("checkout.paying");
 
       api("/payments/" + p.id + "/confirm", {
         method: "POST",
@@ -723,14 +930,16 @@
         },
       })
         .then(function () {
-          toast("Ödeme alındı, biletin hazır 🎟️");
+          toast(t("toast.paid"));
           go("#/bilet/" + data.registration.id);
         })
         .catch(function (err) {
           errEl.textContent = err.message;
           errEl.hidden = false;
           btn.disabled = false;
-          btn.textContent = money(p.amountMinor, p.currency) + " öde";
+          btn.textContent = t("checkout.pay", {
+            amount: money(p.amountMinor, p.currency),
+          });
         });
     });
   }
@@ -748,47 +957,63 @@
           return String(r.id) === String(registrationId);
         })[0];
 
-        if (!reg) return errorView("Bilet bulunamadı.");
+        if (!reg) return errorView(t("ticket.notFound"));
         if (reg.status !== "confirmed") {
-          return errorView("Bu kayıt henüz onaylanmadı (" + reg.status + ").");
+          return errorView(t("ticket.notConfirmed", { status: reg.status }));
         }
 
         var ev = reg.event;
         view.innerHTML =
-          '<a href="#/etkinliklerim" class="btn btn-ghost btn-sm" style="margin-bottom:14px">← Etkinliklerim</a>' +
-          '<div style="max-width:460px;margin:0 auto">' +
-          '<div class="ticket">' +
-          '<div style="font-size:40px">' + h(ev.cover) + "</div>" +
-          '<div style="font-weight:800;font-size:1.2rem;margin:6px 0 2px">' + h(ev.title) + "</div>" +
-          '<div style="opacity:.9;font-size:.9rem">' + h(dateShort(ev.startsAt)) + "</div>" +
-          '<div class="t-divider"></div>' +
-          '<div class="t-label">Giriş kodu</div>' +
-          '<div class="t-code">' + h(reg.ticketCode) + "</div>" +
-          '<div style="opacity:.9;font-size:.85rem">' +
-          (reg.checkedInAt ? "✓ Giriş yapıldı" : "Girişte organizatöre göster") +
-          "</div></div>" +
-
-          '<div class="card" style="margin-top:14px">' +
-          '<div class="info-list">' +
-          infoRow("📍", "Yer", (ev.venue ? ev.venue + " · " : "") + ev.city) +
-          infoRow("🗓️", "Tarih", dateLong(ev.startsAt) + " · " + timeOf(new Date(ev.startsAt))) +
-          infoRow("💳", "Ödenen", reg.amountMinor ? money(reg.amountMinor, reg.currency) : "Ücretsiz") +
-          "</div>" +
-          '<div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">' +
-          '<a class="btn btn-ghost" href="#/etkinlik/' + ev.id + '">Etkinlik sayfası</a>' +
+          '<a href="#/etkinliklerim" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
+          h(t("ticket.back")) +
+          '</a><div style="max-width:460px;margin:0 auto"><div class="ticket">' +
+          '<div style="font-size:40px">' +
+          h(ev.cover) +
+          '</div><div style="font-weight:800;font-size:1.2rem;margin:6px 0 2px">' +
+          h(ev.title) +
+          '</div><div style="opacity:.9;font-size:.9rem">' +
+          h(dateShort(ev.startsAt)) +
+          '</div><div class="t-divider"></div><div class="t-label">' +
+          h(t("ticket.entryCode")) +
+          '</div><div class="t-code">' +
+          h(reg.ticketCode) +
+          '</div><div style="opacity:.9;font-size:.85rem">' +
+          h(reg.checkedInAt ? t("ticket.checkedIn") : t("ticket.showAtDoor")) +
+          '</div></div><div class="card" style="margin-top:14px"><div class="info-list">' +
+          infoRow("📍", t("info.place"), (ev.venue ? ev.venue + " · " : "") + ev.city) +
+          infoRow(
+            "🗓️",
+            t("info.date"),
+            dateLong(ev.startsAt) + " · " + timeOf(new Date(ev.startsAt)),
+          ) +
+          infoRow(
+            "💳",
+            t("ticket.paid"),
+            reg.amountMinor ? money(reg.amountMinor, reg.currency) : t("card.free"),
+          ) +
+          '</div><div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap">' +
+          '<a class="btn btn-ghost" href="#/etkinlik/' +
+          ev.id +
+          '">' +
+          h(t("ticket.eventPage")) +
+          "</a>" +
           (reg.isPast
             ? ""
-            : '<button class="btn btn-danger" id="btn-leave" data-reg="' + reg.id + '">Katılımı iptal et</button>') +
+            : '<button class="btn btn-danger" id="btn-leave" data-reg="' +
+              reg.id +
+              '">' +
+              h(t("action.leave")) +
+              "</button>") +
           "</div></div></div>";
 
         var leave = document.getElementById("btn-leave");
         if (leave) {
           leave.addEventListener("click", function () {
-            if (!confirm("Katılımını iptal etmek istediğine emin misin?")) return;
+            if (!confirm(t("confirm.leave"))) return;
             leave.disabled = true;
             api("/registrations/" + reg.id + "/cancel", { method: "POST" })
               .then(function (res) {
-                toast(res.refunded ? "İptal edildi, ücret iade edildi." : "Katılımın iptal edildi.");
+                toast(res.refunded ? t("toast.cancelledRefunded") : t("toast.cancelled"));
                 go("#/etkinliklerim");
               })
               .catch(function (err) {
@@ -814,11 +1039,18 @@
     var tab = query.get("sekme") === "organizator" ? "organizator" : "katilim";
 
     view.innerHTML =
-      '<div class="page-head"><div><h1 class="page-title">Etkinliklerim</h1></div></div>' +
-      '<div class="chips">' +
-      '<button class="chip ' + (tab === "katilim" ? "active" : "") + '" data-tab="katilim">Katıldıklarım</button>' +
-      '<button class="chip ' + (tab === "organizator" ? "active" : "") + '" data-tab="organizator">Oluşturduklarım</button>' +
-      "</div><div id=\"me-slot\"><div class='skeleton'></div></div>";
+      '<div class="page-head"><div><h1 class="page-title">' +
+      h(t("my.title")) +
+      '</h1></div></div><div class="chips">' +
+      '<button class="chip ' +
+      (tab === "katilim" ? "active" : "") +
+      '" data-tab="katilim">' +
+      h(t("my.tabJoined")) +
+      '</button><button class="chip ' +
+      (tab === "organizator" ? "active" : "") +
+      '" data-tab="organizator">' +
+      h(t("my.tabHosted")) +
+      '</button></div><div id="me-slot"><div class="skeleton"></div></div>';
 
     view.querySelectorAll("[data-tab]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -844,20 +1076,30 @@
 
       if (!data.registrations.length) {
         slot.innerHTML =
-          '<div class="empty"><div class="e-ico">🎟️</div><h3>Henüz bir etkinliğe katılmadın</h3>' +
-          "<p>Keşfet sekmesinden ilgini çeken bir şey bul.</p>" +
-          '<p style="margin-top:14px"><a class="btn btn-primary" href="#/">Etkinlikleri keşfet</a></p></div>';
+          '<div class="empty"><div class="e-ico">🎟️</div><h3>' +
+          h(t("my.emptyJoinedTitle")) +
+          "</h3><p>" +
+          h(t("my.emptyJoinedBody")) +
+          '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/">' +
+          h(t("my.emptyJoinedCta")) +
+          "</a></p></div>";
         return;
       }
 
       slot.innerHTML =
         (active.length
-          ? '<h2 class="section-title">Yaklaşanlar</h2><div class="event-grid">' +
-            active.map(registrationCardHtml).join("") + "</div>"
+          ? '<h2 class="section-title">' +
+            h(t("my.upcoming")) +
+            '</h2><div class="event-grid">' +
+            active.map(registrationCardHtml).join("") +
+            "</div>"
           : "") +
         (past.length
-          ? '<h2 class="section-title">Geçmiş &amp; iptaller</h2><div class="event-grid">' +
-            past.map(registrationCardHtml).join("") + "</div>"
+          ? '<h2 class="section-title">' +
+            h(t("my.pastAndCancelled")) +
+            '</h2><div class="event-grid">' +
+            past.map(registrationCardHtml).join("") +
+            "</div>"
           : "");
     });
   }
@@ -865,27 +1107,29 @@
   function registrationCardHtml(r) {
     var badge =
       r.status === "cancelled"
-        ? '<span class="badge danger">İptal edildi</span>'
+        ? '<span class="badge danger">' + h(t("status.cancelled")) + "</span>"
         : r.status === "pending"
-          ? '<span class="badge warn">Ödeme bekliyor</span>'
+          ? '<span class="badge warn">' + h(t("status.pendingPayment")) + "</span>"
           : r.checkedInAt
-            ? '<span class="badge ok">Giriş yapıldı</span>'
-            : '<span class="badge ok">Onaylı</span>';
+            ? '<span class="badge ok">' + h(t("status.checkedIn")) + "</span>"
+            : '<span class="badge ok">' + h(t("status.confirmed")) + "</span>";
 
-    var target =
-      r.status === "confirmed" ? "#/bilet/" + r.id : "#/etkinlik/" + r.eventId;
+    var target = r.status === "confirmed" ? "#/bilet/" + r.id : "#/etkinlik/" + r.eventId;
 
     return (
-      '<article class="event-card" data-href="' + target + '">' +
-      '<div class="cover">' + h(r.event.cover) + "</div>" +
-      '<div class="event-body">' +
-      '<div class="event-date">' + h(dateShort(r.event.startsAt)) + "</div>" +
-      '<h3 class="event-title">' + h(r.event.title) + "</h3>" +
-      '<div class="event-meta"><span>📍 ' + h(r.event.venue || r.event.city) + "</span></div>" +
-      '<div class="event-foot">' + badge +
-      (r.ticketCode
-        ? '<span class="price-pill">🎟️ ' + h(r.ticketCode) + "</span>"
-        : "") +
+      '<article class="event-card" data-href="' +
+      target +
+      '"><div class="cover">' +
+      h(r.event.cover) +
+      '</div><div class="event-body"><div class="event-date">' +
+      h(dateShort(r.event.startsAt)) +
+      '</div><h3 class="event-title">' +
+      h(r.event.title) +
+      '</h3><div class="event-meta"><span>📍 ' +
+      h(r.event.venue || r.event.city) +
+      '</span></div><div class="event-foot">' +
+      badge +
+      (r.ticketCode ? '<span class="price-pill">🎟️ ' + h(r.ticketCode) + "</span>" : "") +
       "</div></div></article>"
     );
   }
@@ -897,9 +1141,13 @@
 
       if (!data.events.length) {
         slot.innerHTML =
-          '<div class="empty"><div class="e-ico">📣</div><h3>Henüz etkinlik oluşturmadın</h3>' +
-          "<p>Kendi voleybol maçını ya da atölyeni dakikalar içinde yayınla.</p>" +
-          '<p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">Etkinlik oluştur</a></p></div>';
+          '<div class="empty"><div class="e-ico">📣</div><h3>' +
+          h(t("my.emptyHostedTitle")) +
+          "</h3><p>" +
+          h(t("my.emptyHostedBody")) +
+          '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/olustur">' +
+          h(t("my.emptyHostedCta")) +
+          "</a></p></div>";
         return;
       }
 
@@ -908,21 +1156,29 @@
         data.events
           .map(function (ev) {
             return (
-              '<article class="event-card" data-href="#/etkinlik/' + ev.id + '/katilimcilar">' +
-              '<div class="cover">' + h(ev.cover) + "</div>" +
-              '<div class="event-body">' +
-              '<div class="event-date">' + h(dateShort(ev.startsAt)) + "</div>" +
-              '<h3 class="event-title">' + h(ev.title) + "</h3>" +
-              '<div class="event-meta"><span>👥 ' + ev.attendeeCount + "/" + ev.capacity + "</span>" +
-              "<span>💰 " + h(money(ev.earnings.payable, ev.currency)) + " alacak</span></div>" +
-              '<div class="event-foot">' +
+              '<article class="event-card" data-href="#/etkinlik/' +
+              ev.id +
+              '/katilimcilar"><div class="cover">' +
+              h(ev.cover) +
+              '</div><div class="event-body"><div class="event-date">' +
+              h(dateShort(ev.startsAt)) +
+              '</div><h3 class="event-title">' +
+              h(ev.title) +
+              '</h3><div class="event-meta"><span>👥 ' +
+              ev.attendeeCount +
+              "/" +
+              ev.capacity +
+              "</span><span>💰 " +
+              h(t("host.payable", { amount: money(ev.earnings.payable, ev.currency) })) +
+              '</span></div><div class="event-foot">' +
               (ev.status === "cancelled"
-                ? '<span class="badge danger">İptal</span>'
+                ? '<span class="badge danger">' + h(t("host.cancelled")) + "</span>"
                 : ev.isPast
-                  ? '<span class="badge">Tamamlandı</span>'
-                  : '<span class="badge ok">Yayında</span>') +
-              '<span class="badge info">' + ev.earnings.paid_count + " ödeme</span>" +
-              "</div></div></article>"
+                  ? '<span class="badge">' + h(t("host.completed")) + "</span>"
+                  : '<span class="badge ok">' + h(t("host.live")) + "</span>") +
+              '<span class="badge info">' +
+              h(t("host.payments", { count: ev.earnings.paid_count })) +
+              "</span></div></div></article>"
             );
           })
           .join("") +
@@ -938,10 +1194,7 @@
     if (!state.user) return requireLogin("#/etkinlik/" + eventId + "/katilimcilar");
     loading();
 
-    Promise.all([
-      api("/events/" + eventId),
-      api("/events/" + eventId + "/attendees"),
-    ])
+    Promise.all([api("/events/" + eventId), api("/events/" + eventId + "/attendees")])
       .then(function (results) {
         var ev = results[0].event;
         var attendees = results[1].attendees;
@@ -951,46 +1204,84 @@
         });
 
         view.innerHTML =
-          '<a href="#/etkinlik/' + ev.id + '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">← Etkinlik</a>' +
-          '<div class="page-head"><div><h1 class="page-title">Katılımcılar</h1>' +
-          '<p class="page-sub">' + h(ev.title) + " · " + confirmed.length + "/" + ev.capacity + " kişi</p></div></div>" +
-
-          '<div class="card"><h2 class="section-title" style="margin-top:0">Giriş kontrolü</h2>' +
-          '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
-          '<input id="checkin-code" placeholder="ABCD-1234" style="flex:1;min-width:180px;padding:12px 14px;border-radius:12px;border:1px solid var(--border);background:var(--surface-2);font-size:16px;text-transform:uppercase" />' +
-          '<button class="btn btn-primary" id="checkin-btn">Kodu doğrula</button></div>' +
-          '<div id="checkin-result" style="margin-top:12px"></div></div>' +
-
-          '<div class="card"><h2 class="section-title" style="margin-top:0">Liste</h2>' +
+          '<a href="#/etkinlik/' +
+          ev.id +
+          '" class="btn btn-ghost btn-sm" style="margin-bottom:14px">' +
+          h(t("att.back")) +
+          '</a><div class="page-head"><div><h1 class="page-title">' +
+          h(t("att.title")) +
+          '</h1><p class="page-sub">' +
+          h(
+            t("att.subtitle", {
+              title: ev.title,
+              count: confirmed.length,
+              capacity: ev.capacity,
+            }),
+          ) +
+          '</p></div></div><div class="card">' +
+          '<h2 class="section-title" style="margin-top:0">' +
+          h(t("att.checkin")) +
+          '</h2><div style="display:flex;gap:10px;flex-wrap:wrap">' +
+          '<input id="checkin-code" placeholder="' +
+          h(t("att.codePlaceholder")) +
+          '" style="flex:1;min-width:180px;padding:12px 14px;border-radius:12px;' +
+          'border:1px solid var(--border);background:var(--surface-2);font-size:16px;' +
+          'text-transform:uppercase" />' +
+          '<button class="btn btn-primary" id="checkin-btn">' +
+          h(t("att.verify")) +
+          '</button></div><div id="checkin-result" style="margin-top:12px"></div></div>' +
+          '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+          h(t("att.list")) +
+          "</h2>" +
           (attendees.length
-            ? '<div class="table-wrap"><table class="data"><thead><tr>' +
-              "<th>Ad</th><th>İletişim</th><th>Bilet</th><th>Ödeme</th><th>Durum</th>" +
-              "</tr></thead><tbody>" +
+            ? '<div class="table-wrap"><table class="data"><thead><tr><th>' +
+              h(t("att.colName")) +
+              "</th><th>" +
+              h(t("att.colContact")) +
+              "</th><th>" +
+              h(t("att.colTicket")) +
+              "</th><th>" +
+              h(t("att.colPayment")) +
+              "</th><th>" +
+              h(t("att.colStatus")) +
+              "</th></tr></thead><tbody>" +
               attendees
                 .map(function (a) {
                   return (
-                    "<tr><td><b>" + h(a.name) + "</b></td>" +
-                    '<td style="color:var(--muted)">' + h(a.email) +
-                    (a.phone ? "<br>" + h(a.phone) : "") + "</td>" +
-                    '<td class="num">' + h(a.ticketCode) + "</td>" +
-                    '<td class="num">' + h(money(a.amountMinor, ev.currency)) +
+                    "<tr><td><b>" +
+                    h(a.name) +
+                    '</b></td><td style="color:var(--muted)">' +
+                    h(a.email) +
+                    (a.phone ? "<br>" + h(a.phone) : "") +
+                    '</td><td class="num">' +
+                    h(a.ticketCode) +
+                    '</td><td class="num">' +
+                    h(money(a.amountMinor, ev.currency)) +
                     (a.paymentStatus
-                      ? ' <span class="badge ' + (a.paymentStatus === "paid" ? "ok" : a.paymentStatus === "refunded" ? "warn" : "") + '">' +
-                        h(paymentLabel(a.paymentStatus)) + "</span>"
+                      ? ' <span class="badge ' +
+                        (a.paymentStatus === "paid"
+                          ? "ok"
+                          : a.paymentStatus === "refunded"
+                            ? "warn"
+                            : "") +
+                        '">' +
+                        h(paymentLabel(a.paymentStatus)) +
+                        "</span>"
                       : "") +
-                    "</td>" +
-                    "<td>" +
+                    "</td><td>" +
                     (a.status === "confirmed"
                       ? a.checkedInAt
-                        ? '<span class="badge ok">Giriş yaptı</span>'
-                        : '<span class="badge info">Bekleniyor</span>'
-                      : '<span class="badge">' + h(a.status) + "</span>") +
+                        ? '<span class="badge ok">' + h(t("att.arrived")) + "</span>"
+                        : '<span class="badge info">' + h(t("att.waiting")) + "</span>"
+                      : '<span class="badge">' + h(statusLabel(a.status)) + "</span>") +
                     "</td></tr>"
                   );
                 })
                 .join("") +
               "</tbody></table></div>"
-            : '<div class="empty"><div class="e-ico">👥</div><h3>Henüz katılımcı yok</h3></div>') +
+            : '<div class="empty"><div class="e-ico">👥</div><h3>' +
+              h(t("att.emptyTitle")) +
+              "</h3></div>") +
           "</div>";
 
         document.getElementById("checkin-btn").addEventListener("click", function () {
@@ -1000,7 +1291,10 @@
 
           api("/events/" + ev.id + "/checkin", { method: "POST", body: { code: code } })
             .then(function (res) {
-              out.innerHTML = '<div class="alert alert-success">✓ ' + h(res.name) + " içeri alındı.</div>";
+              out.innerHTML =
+                '<div class="alert alert-success">' +
+                h(t("att.checkedInOk", { name: res.name })) +
+                "</div>";
               document.getElementById("checkin-code").value = "";
               setTimeout(render, 900);
             })
@@ -1015,12 +1309,11 @@
   }
 
   function paymentLabel(status) {
-    return {
-      paid: "Ödendi",
-      pending: "Bekliyor",
-      refunded: "İade",
-      failed: "Başarısız",
-    }[status] || status;
+    return t("pay." + status);
+  }
+
+  function statusLabel(status) {
+    return { confirmed: t("status.confirmed"), cancelled: t("status.cancelled"), pending: t("status.pendingPayment") }[status] || status;
   }
 
   // ── Görünüm: Etkinlik oluştur ────────────────────────────────────────────
@@ -1038,76 +1331,96 @@
       .slice(0, 16);
 
     view.innerHTML =
-      '<div class="page-head"><div><h1 class="page-title">Etkinlik oluştur</h1>' +
-      '<p class="page-sub">Ücreti sen belirle; katılımcılar uygulamadan ödesin.</p></div></div>' +
-      '<div class="card"><form id="create-form" novalidate>' +
+      '<div class="page-head"><div><h1 class="page-title">' +
+      h(t("create.title")) +
+      '</h1><p class="page-sub">' +
+      h(t("create.subtitle")) +
+      '</p></div></div><div class="card"><form id="create-form" novalidate>' +
       '<div id="create-error" class="alert alert-error" hidden></div>' +
-
-      '<div class="field"><label>Kapak simgesi</label>' +
-      '<div class="chips" id="cover-chips">' +
+      '<div class="field"><label>' +
+      h(t("create.cover")) +
+      '</label><div class="chips" id="cover-chips">' +
       covers
         .map(function (c, i) {
           return (
-            '<button type="button" class="chip ' + (i === 0 ? "active" : "") +
-            '" data-cover="' + c + '" style="font-size:1.1rem">' + c + "</button>"
+            '<button type="button" class="chip ' +
+            (i === 0 ? "active" : "") +
+            '" data-cover="' +
+            c +
+            '" style="font-size:1.1rem">' +
+            c +
+            "</button>"
           );
         })
         .join("") +
-      "</div></div>" +
-
-      '<div class="field"><label for="c-title">Başlık</label>' +
-      '<input id="c-title" placeholder="Salı Akşamı Voleybol" maxlength="120" required /></div>' +
-
-      '<div class="field"><label for="c-desc">Açıklama</label>' +
-      '<textarea id="c-desc" placeholder="Seviye, ekipman, buluşma noktası…"></textarea></div>' +
-
-      '<div class="field-row">' +
-      '<div class="field"><label for="c-category">Kategori</label>' +
-      '<select id="c-category">' +
-      ["Spor", "Doğa", "Sağlık", "Teknoloji", "Sanat", "Müzik", "Sosyal"]
+      '</div></div><div class="field"><label for="c-title">' +
+      h(t("create.eventTitle")) +
+      '</label><input id="c-title" placeholder="' +
+      h(t("create.titlePlaceholder")) +
+      '" maxlength="120" required /></div>' +
+      '<div class="field"><label for="c-desc">' +
+      h(t("create.desc")) +
+      '</label><textarea id="c-desc" placeholder="' +
+      h(t("create.descPlaceholder")) +
+      '"></textarea></div>' +
+      '<div class="field-row"><div class="field"><label for="c-category">' +
+      h(t("create.category")) +
+      '</label><select id="c-category">' +
+      I18N.categories
         .map(function (c) {
-          return '<option>' + c + "</option>";
+          return '<option value="' + h(c) + '">' + h(I18N.category(c)) + "</option>";
         })
         .join("") +
-      "</select></div>" +
-      '<div class="field"><label for="c-level">Seviye</label>' +
-      '<select id="c-level">' +
-      ["Herkes", "Başlangıç", "Orta", "İleri"]
+      '</select></div><div class="field"><label for="c-level">' +
+      h(t("create.level")) +
+      '</label><select id="c-level">' +
+      I18N.levels
         .map(function (c) {
-          return "<option>" + c + "</option>";
+          return '<option value="' + h(c) + '">' + h(I18N.level(c)) + "</option>";
         })
         .join("") +
       "</select></div></div>" +
-
-      '<div class="field-row">' +
-      '<div class="field"><label for="c-city">Şehir</label>' +
-      '<input id="c-city" placeholder="İstanbul" value="' + h(state.user.city || "") + '" required /></div>' +
-      '<div class="field"><label for="c-venue">Mekân</label>' +
-      '<input id="c-venue" placeholder="Kadıköy Spor Salonu" /></div></div>' +
-
-      '<div class="field"><label for="c-address">Adres</label>' +
-      '<input id="c-address" placeholder="Caferağa Mah. Spor Cad. No:12" /></div>' +
-
-      '<div class="field-row">' +
-      '<div class="field"><label for="c-start">Başlangıç</label>' +
-      '<input id="c-start" type="datetime-local" value="' + defaultDate + '" required /></div>' +
-      '<div class="field"><label for="c-duration">Süre (saat)</label>' +
-      '<input id="c-duration" type="number" min="1" max="12" value="2" /></div></div>' +
-
-      '<div class="field-row">' +
-      '<div class="field"><label for="c-capacity">Kontenjan</label>' +
-      '<input id="c-capacity" type="number" min="1" max="1000" value="12" required /></div>' +
-      '<div class="field"><label for="c-price">Kişi başı ücret (' + h(state.config.currencySymbol) + ")</label>" +
-      '<input id="c-price" type="number" min="0" step="1" value="150" />' +
-      '<div class="hint">0 yazarsan etkinlik ücretsiz olur.</div></div></div>' +
-
-      '<div class="alert alert-info">Katılımcı ödemeleri ' + h(state.config.ownerName) +
-      " hesabında toplanır. Etkinlik sonrası payın (%" +
-      Math.round((1 - state.config.commissionRate) * 100) +
-      ") sana aktarılır.</div>" +
-
-      '<button type="submit" class="btn btn-primary btn-full" id="create-btn">Etkinliği yayınla</button>' +
-      "</form></div>";
+      '<div class="field-row"><div class="field"><label for="c-city">' +
+      h(t("create.city")) +
+      '</label><input id="c-city" placeholder="' +
+      h(t("create.cityPlaceholder")) +
+      '" value="' +
+      h(state.user.city || "") +
+      '" required /></div><div class="field"><label for="c-venue">' +
+      h(t("create.venue")) +
+      '</label><input id="c-venue" placeholder="' +
+      h(t("create.venuePlaceholder")) +
+      '" /></div></div>' +
+      '<div class="field"><label for="c-address">' +
+      h(t("create.address")) +
+      '</label><input id="c-address" placeholder="' +
+      h(t("create.addressPlaceholder")) +
+      '" /></div>' +
+      '<div class="field-row"><div class="field"><label for="c-start">' +
+      h(t("create.start")) +
+      '</label><input id="c-start" type="datetime-local" value="' +
+      defaultDate +
+      '" required /></div><div class="field"><label for="c-duration">' +
+      h(t("create.duration")) +
+      '</label><input id="c-duration" type="number" min="1" max="12" value="2" /></div></div>' +
+      '<div class="field-row"><div class="field"><label for="c-capacity">' +
+      h(t("create.capacity")) +
+      '</label><input id="c-capacity" type="number" min="1" max="1000" value="12" required /></div>' +
+      '<div class="field"><label for="c-price">' +
+      h(t("create.price", { symbol: state.config.currencySymbol })) +
+      '</label><input id="c-price" type="number" min="0" step="1" value="150" />' +
+      '<div class="hint">' +
+      h(t("create.priceHint")) +
+      '</div></div></div><div class="alert alert-info">' +
+      h(
+        t("create.payoutNote", {
+          owner: state.config.ownerName,
+          percent: Math.round((1 - state.config.commissionRate) * 100),
+        }),
+      ) +
+      '</div><button type="submit" class="btn btn-primary btn-full" id="create-btn">' +
+      h(t("create.submit")) +
+      "</button></form></div>";
 
     var cover = "🏐";
     view.querySelectorAll("[data-cover]").forEach(function (btn) {
@@ -1126,7 +1439,7 @@
       var errEl = document.getElementById("create-error");
       errEl.hidden = true;
       btn.disabled = true;
-      btn.textContent = "Yayınlanıyor…";
+      btn.textContent = t("create.submitting");
 
       var startLocal = document.getElementById("c-start").value;
 
@@ -1144,18 +1457,20 @@
           startsAt: startLocal ? new Date(startLocal).toISOString() : "",
           durationHours: Number(document.getElementById("c-duration").value),
           capacity: Number(document.getElementById("c-capacity").value),
-          priceMinor: Math.round(Number(document.getElementById("c-price").value || 0) * 100),
+          priceMinor: Math.round(
+            Number(document.getElementById("c-price").value || 0) * 100,
+          ),
         },
       })
         .then(function (res) {
-          toast("Etkinliğin yayında 🎉");
+          toast(t("toast.eventPublished"));
           go("#/etkinlik/" + res.event.id);
         })
         .catch(function (err) {
           errEl.textContent = err.message;
           errEl.hidden = false;
           btn.disabled = false;
-          btn.textContent = "Etkinliği yayınla";
+          btn.textContent = t("create.submit");
         });
     });
   }
@@ -1171,32 +1486,82 @@
 
     view.innerHTML =
       '<div class="card" style="text-align:center">' +
-      '<div class="avatar lg" style="margin:0 auto 12px">' + h(initialsOf(u.name)) + "</div>" +
-      '<h1 class="page-title" style="font-size:1.3rem">' + h(u.name) + "</h1>" +
-      '<p class="page-sub">' + h(u.email) + (u.city ? " · " + h(u.city) : "") + "</p>" +
-      (u.role === "owner" ? '<div style="margin-top:10px"><span class="badge ok">Uygulama sahibi</span></div>' : "") +
-      "</div>" +
-
+      '<div class="avatar lg" style="margin:0 auto 12px">' +
+      h(initialsOf(u.name)) +
+      '</div><h1 class="page-title" style="font-size:1.3rem">' +
+      h(u.name) +
+      '</h1><p class="page-sub">' +
+      h(u.email) +
+      (u.city ? " · " + h(u.city) : "") +
+      "</p>" +
       (u.role === "owner"
-        ? '<div class="card"><a class="btn btn-primary btn-full" href="#/panel">📊 Gelir panelini aç</a></div>'
+        ? '<div style="margin-top:10px"><span class="badge ok">' +
+          h(t("profile.ownerBadge")) +
+          "</span></div>"
         : "") +
-
-      '<div class="card"><h2 class="section-title" style="margin-top:0">Bilgilerim</h2>' +
-      '<form id="profile-form">' +
-      '<div id="profile-error" class="alert alert-error" hidden></div>' +
-      '<div class="field"><label for="p-name">Ad soyad</label><input id="p-name" value="' + h(u.name) + '" /></div>' +
-      '<div class="field-row">' +
-      '<div class="field"><label for="p-city">Şehir</label><input id="p-city" value="' + h(u.city || "") + '" /></div>' +
-      '<div class="field"><label for="p-phone">Telefon</label><input id="p-phone" value="' + h(u.phone || "") + '" /></div>' +
       "</div>" +
-      '<div class="field"><label for="p-bio">Hakkımda</label><textarea id="p-bio">' + h(u.bio || "") + "</textarea></div>" +
-      '<button class="btn btn-primary" id="p-save">Kaydet</button>' +
-      "</form></div>" +
+      (u.role === "owner"
+        ? '<div class="card"><a class="btn btn-primary btn-full" href="#/panel">' +
+          h(t("profile.openPanel")) +
+          "</a></div>"
+        : "") +
+      '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+      h(t("profile.language")) +
+      '</h2><div class="chips" id="lang-chips">' +
+      I18N.langs
+        .map(function (lang) {
+          return (
+            '<button class="chip ' +
+            (lang.code === I18N.get() ? "active" : "") +
+            '" data-set-lang="' +
+            lang.code +
+            '">' +
+            lang.flag +
+            " " +
+            h(lang.label) +
+            "</button>"
+          );
+        })
+        .join("") +
+      '</div><div class="hint" style="font-size:.78rem;color:var(--faint);margin-top:4px">' +
+      h(t("profile.languageHint")) +
+      "</div></div>" +
+      '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+      h(t("profile.myInfo")) +
+      '</h2><form id="profile-form">' +
+      '<div id="profile-error" class="alert alert-error" hidden></div>' +
+      '<div class="field"><label for="p-name">' +
+      h(t("profile.name")) +
+      '</label><input id="p-name" value="' +
+      h(u.name) +
+      '" /></div><div class="field-row">' +
+      '<div class="field"><label for="p-city">' +
+      h(t("profile.city")) +
+      '</label><input id="p-city" value="' +
+      h(u.city || "") +
+      '" /></div><div class="field"><label for="p-phone">' +
+      h(t("profile.phone")) +
+      '</label><input id="p-phone" value="' +
+      h(u.phone || "") +
+      '" /></div></div><div class="field"><label for="p-bio">' +
+      h(t("profile.bio")) +
+      '</label><textarea id="p-bio">' +
+      h(u.bio || "") +
+      '</textarea></div><button class="btn btn-primary" id="p-save">' +
+      h(t("profile.save")) +
+      "</button></form></div>" +
+      '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+      h(t("profile.payHistory")) +
+      '</h2><div id="pay-history"><div class="skeleton" style="height:60px"></div></div></div>' +
+      '<div class="card"><button class="btn btn-danger btn-full" id="logout">' +
+      h(t("profile.logout")) +
+      "</button></div>";
 
-      '<div class="card"><h2 class="section-title" style="margin-top:0">Ödeme geçmişim</h2>' +
-      '<div id="pay-history"><div class="skeleton" style="height:60px"></div></div></div>' +
-
-      '<div class="card"><button class="btn btn-danger btn-full" id="logout">Çıkış yap</button></div>';
+    view.querySelectorAll("[data-set-lang]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        changeLanguage(btn.getAttribute("data-set-lang"));
+      });
+    });
 
     document.getElementById("profile-form").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -1216,7 +1581,7 @@
       })
         .then(function (res) {
           state.user = res.user;
-          toast("Bilgilerin güncellendi.");
+          toast(t("toast.profileSaved"));
           renderShell("profile");
           btn.disabled = false;
         })
@@ -1230,7 +1595,7 @@
     document.getElementById("logout").addEventListener("click", function () {
       api("/auth/logout", { method: "POST" }).then(function () {
         state.user = null;
-        toast("Çıkış yapıldı.");
+        toast(t("toast.loggedOut"));
         go("#/");
       });
     });
@@ -1239,21 +1604,38 @@
       var slot = document.getElementById("pay-history");
       if (!slot) return;
       if (!data.payments.length) {
-        slot.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Henüz ödeme yok.</p>';
+        slot.innerHTML =
+          '<p style="color:var(--muted);font-size:.9rem">' +
+          h(t("profile.noPayments")) +
+          "</p>";
         return;
       }
       slot.innerHTML =
-        '<div class="table-wrap"><table class="data"><thead><tr>' +
-        "<th>Etkinlik</th><th>Tutar</th><th>Durum</th><th>Tarih</th></tr></thead><tbody>" +
+        '<div class="table-wrap"><table class="data"><thead><tr><th>' +
+        h(t("col.event")) +
+        "</th><th>" +
+        h(t("col.amount")) +
+        "</th><th>" +
+        h(t("col.status")) +
+        "</th><th>" +
+        h(t("col.date")) +
+        "</th></tr></thead><tbody>" +
         data.payments
           .map(function (p) {
             return (
-              "<tr><td>" + h(p.cover) + " " + h(p.eventTitle) + "</td>" +
-              '<td class="num">' + h(money(p.amountMinor, p.currency)) + "</td>" +
-              '<td><span class="badge ' + (p.status === "paid" ? "ok" : p.status === "refunded" ? "warn" : "") + '">' +
-              h(paymentLabel(p.status)) + "</span></td>" +
-              '<td class="num" style="color:var(--muted)">' +
-              h(new Date(p.paidAt || p.createdAt).toLocaleDateString("tr-TR")) + "</td></tr>"
+              "<tr><td>" +
+              h(p.cover) +
+              " " +
+              h(p.eventTitle) +
+              '</td><td class="num">' +
+              h(money(p.amountMinor, p.currency)) +
+              '</td><td><span class="badge ' +
+              (p.status === "paid" ? "ok" : p.status === "refunded" ? "warn" : "") +
+              '">' +
+              h(paymentLabel(p.status)) +
+              '</span></td><td class="num" style="color:var(--muted)">' +
+              h(fmtDate(new Date(p.paidAt || p.createdAt), { dateStyle: "medium" })) +
+              "</td></tr>"
             );
           })
           .join("") +
@@ -1273,72 +1655,131 @@
       .then(function (results) {
         var s = results[0];
         var payments = results[1].payments;
-        var t = s.totals;
+        var totals = s.totals;
 
         view.innerHTML =
-          '<div class="page-head"><div><h1 class="page-title">Gelir paneli</h1>' +
-          '<p class="page-sub">Tüm katılım ücretleri bu hesapta toplanıyor · ödeme altyapısı: ' +
-          h(s.provider === "stripe" ? "Stripe (canlı)" : "demo") + "</p></div></div>" +
-
-          '<div class="stat-grid">' +
-          statBox("Toplam tahsilat", money(t.gross, s.currency), true) +
-          statBox("Platform komisyonu (%" + Math.round(s.commissionRate * 100) + ")", money(t.commission, s.currency)) +
-          statBox("Organizatörlere borç", money(t.organizer_payable, s.currency)) +
-          statBox("İade edilen", money(t.refunded, s.currency)) +
-          "</div>" +
-
-          '<div class="stat-grid" style="margin-top:12px">' +
-          statBox("Ödeme sayısı", String(t.paid_count)) +
-          statBox("Bekleyen ödeme", String(t.pending_count)) +
-          statBox("Kayıtlı kullanıcı", String(s.counts.users)) +
-          statBox("Yayındaki etkinlik", String(s.counts.events)) +
-          "</div>" +
-
-          '<div class="card" style="margin-top:14px"><h2 class="section-title" style="margin-top:0">Etkinlik bazında</h2>' +
+          '<div class="page-head"><div><h1 class="page-title">' +
+          h(t("owner.title")) +
+          '</h1><p class="page-sub">' +
+          h(
+            t("owner.subtitle", {
+              provider:
+                s.provider === "stripe"
+                  ? t("owner.providerStripe")
+                  : t("owner.providerDemo"),
+            }),
+          ) +
+          '</p></div></div><div class="stat-grid">' +
+          statBox(t("owner.gross"), money(totals.gross, s.currency), true) +
+          statBox(
+            t("owner.commission", { percent: Math.round(s.commissionRate * 100) }),
+            money(totals.commission, s.currency),
+          ) +
+          statBox(t("owner.payable"), money(totals.organizer_payable, s.currency)) +
+          statBox(t("owner.refunded"), money(totals.refunded, s.currency)) +
+          '</div><div class="stat-grid" style="margin-top:12px">' +
+          statBox(t("owner.paidCount"), String(totals.paid_count)) +
+          statBox(t("owner.pendingCount"), String(totals.pending_count)) +
+          statBox(t("owner.users"), String(s.counts.users)) +
+          statBox(t("owner.liveEvents"), String(s.counts.events)) +
+          '</div><div class="card" style="margin-top:14px">' +
+          '<h2 class="section-title" style="margin-top:0">' +
+          h(t("owner.byEvent")) +
+          "</h2>" +
           (s.byEvent.length
-            ? '<div class="table-wrap"><table class="data"><thead><tr>' +
-              "<th>Etkinlik</th><th>Organizatör</th><th>Ödeme</th><th>Tahsilat</th><th>Komisyon</th><th>Ödenecek</th>" +
-              "</tr></thead><tbody>" +
+            ? '<div class="table-wrap"><table class="data"><thead><tr><th>' +
+              h(t("col.event")) +
+              "</th><th>" +
+              h(t("owner.colHost")) +
+              "</th><th>" +
+              h(t("owner.colPayments")) +
+              "</th><th>" +
+              h(t("owner.colGross")) +
+              "</th><th>" +
+              h(t("owner.colCommission")) +
+              "</th><th>" +
+              h(t("owner.colPayable")) +
+              "</th></tr></thead><tbody>" +
               s.byEvent
                 .map(function (e) {
                   return (
-                    "<tr><td><b>" + h(e.cover) + " " + h(e.title) + "</b><br>" +
-                    '<span style="color:var(--muted);font-size:.8rem">' + h(dateShort(e.starts_at)) + " · " + h(e.city) + "</span></td>" +
-                    "<td>" + h(e.organizer_name) + "</td>" +
-                    '<td class="num">' + e.paid_count + "</td>" +
-                    '<td class="num">' + h(money(e.gross, s.currency)) + "</td>" +
-                    '<td class="num">' + h(money(e.commission, s.currency)) + "</td>" +
-                    '<td class="num">' + h(money(e.payable, s.currency)) + "</td></tr>"
+                    "<tr><td><b>" +
+                    h(e.cover) +
+                    " " +
+                    h(e.title) +
+                    '</b><br><span style="color:var(--muted);font-size:.8rem">' +
+                    h(dateShort(e.starts_at)) +
+                    " · " +
+                    h(e.city) +
+                    "</span></td><td>" +
+                    h(e.organizer_name) +
+                    '</td><td class="num">' +
+                    e.paid_count +
+                    '</td><td class="num">' +
+                    h(money(e.gross, s.currency)) +
+                    '</td><td class="num">' +
+                    h(money(e.commission, s.currency)) +
+                    '</td><td class="num">' +
+                    h(money(e.payable, s.currency)) +
+                    "</td></tr>"
                   );
                 })
                 .join("") +
               "</tbody></table></div>"
-            : '<div class="empty"><div class="e-ico">💸</div><h3>Henüz ödeme yok</h3></div>') +
-          "</div>" +
-
-          '<div class="card"><h2 class="section-title" style="margin-top:0">Son ödemeler</h2>' +
+            : '<div class="empty"><div class="e-ico">💸</div><h3>' +
+              h(t("owner.noPayments")) +
+              "</h3></div>") +
+          '</div><div class="card"><h2 class="section-title" style="margin-top:0">' +
+          h(t("owner.recent")) +
+          "</h2>" +
           (payments.length
-            ? '<div class="table-wrap"><table class="data"><thead><tr>' +
-              "<th>#</th><th>Kullanıcı</th><th>Etkinlik</th><th>Tutar</th><th>Durum</th><th>Yöntem</th>" +
-              "</tr></thead><tbody>" +
+            ? '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>' +
+              h(t("owner.colUser")) +
+              "</th><th>" +
+              h(t("col.event")) +
+              "</th><th>" +
+              h(t("col.amount")) +
+              "</th><th>" +
+              h(t("col.status")) +
+              "</th><th>" +
+              h(t("owner.colMethod")) +
+              "</th></tr></thead><tbody>" +
               payments
                 .map(function (p) {
                   return (
-                    '<tr><td class="num">' + p.id + "</td>" +
-                    "<td><b>" + h(p.userName) + "</b><br>" +
-                    '<span style="color:var(--muted);font-size:.8rem">' + h(p.userEmail) + "</span></td>" +
-                    "<td>" + h(p.cover) + " " + h(p.eventTitle) + "</td>" +
-                    '<td class="num">' + h(money(p.amountMinor, p.currency)) + "</td>" +
-                    '<td><span class="badge ' +
-                    (p.status === "paid" ? "ok" : p.status === "refunded" ? "warn" : p.status === "failed" ? "danger" : "") +
-                    '">' + h(paymentLabel(p.status)) + "</span></td>" +
-                    '<td style="color:var(--muted)">' + h(p.provider) +
-                    (p.cardLast4 ? " ••" + h(p.cardLast4) : "") + "</td></tr>"
+                    '<tr><td class="num">' +
+                    p.id +
+                    "</td><td><b>" +
+                    h(p.userName) +
+                    '</b><br><span style="color:var(--muted);font-size:.8rem">' +
+                    h(p.userEmail) +
+                    "</span></td><td>" +
+                    h(p.cover) +
+                    " " +
+                    h(p.eventTitle) +
+                    '</td><td class="num">' +
+                    h(money(p.amountMinor, p.currency)) +
+                    '</td><td><span class="badge ' +
+                    (p.status === "paid"
+                      ? "ok"
+                      : p.status === "refunded"
+                        ? "warn"
+                        : p.status === "failed"
+                          ? "danger"
+                          : "") +
+                    '">' +
+                    h(paymentLabel(p.status)) +
+                    '</span></td><td style="color:var(--muted)">' +
+                    h(p.provider) +
+                    (p.cardLast4 ? " ••" + h(p.cardLast4) : "") +
+                    "</td></tr>"
                   );
                 })
                 .join("") +
               "</tbody></table></div>"
-            : '<div class="empty"><div class="e-ico">🧾</div><h3>Kayıt yok</h3></div>') +
+            : '<div class="empty"><div class="e-ico">🧾</div><h3>' +
+              h(t("owner.noRecords")) +
+              "</h3></div>") +
           "</div>";
       })
       .catch(function (err) {
@@ -1348,9 +1789,13 @@
 
   function statBox(label, value, accent) {
     return (
-      '<div class="stat' + (accent ? " accent" : "") + '">' +
-      '<div class="label">' + h(label) + "</div>" +
-      '<div class="value">' + h(value) + "</div></div>"
+      '<div class="stat' +
+      (accent ? " accent" : "") +
+      '"><div class="label">' +
+      h(label) +
+      '</div><div class="value">' +
+      h(value) +
+      "</div></div>"
     );
   }
 
@@ -1368,45 +1813,59 @@
 
     view.className = "auth-wrap";
     view.innerHTML =
-      '<div class="auth-card">' +
-      '<div class="auth-hero"><div class="brand-mark">🎟️</div>' +
-      "<h1>" + (isLogin ? "Tekrar hoş geldin" : "Buluş'a katıl") + "</h1>" +
-      "<p>" + (isLogin ? "Etkinliklerine devam et." : "Birkaç saniyede hesabını oluştur.") + "</p></div>" +
-
-      '<div class="card">' +
-      '<form id="auth-form" novalidate>' +
+      '<div class="auth-card"><div class="auth-hero"><div class="brand-mark">🎟️</div><h1>' +
+      h(isLogin ? t("auth.welcomeBack") : t("auth.joinTitle")) +
+      "</h1><p>" +
+      h(isLogin ? t("auth.welcomeBackSub") : t("auth.joinSub")) +
+      '</p></div><div class="card"><form id="auth-form" novalidate>' +
       '<div id="auth-error" class="alert alert-error" hidden></div>' +
       (isLogin
         ? ""
-        : '<div class="field"><label for="a-name">Ad soyad</label>' +
-          '<input id="a-name" autocomplete="name" placeholder="İrfan Yılmaz" required /></div>') +
-      '<div class="field"><label for="a-email">E-posta</label>' +
-      '<input id="a-email" type="email" autocomplete="email" placeholder="irfan@example.com" required /></div>' +
-      '<div class="field"><label for="a-password">Şifre</label>' +
-      '<input id="a-password" type="password" autocomplete="' +
-      (isLogin ? "current-password" : "new-password") + '" placeholder="••••••••" required />' +
-      (isLogin ? "" : '<div class="hint">En az 8 karakter.</div>') + "</div>" +
+        : '<div class="field"><label for="a-name">' +
+          h(t("auth.name")) +
+          '</label><input id="a-name" autocomplete="name" placeholder="' +
+          h(t("auth.namePlaceholder")) +
+          '" required /></div>') +
+      '<div class="field"><label for="a-email">' +
+      h(t("auth.email")) +
+      '</label><input id="a-email" type="email" autocomplete="email" ' +
+      'placeholder="irfan@example.com" required /></div>' +
+      '<div class="field"><label for="a-password">' +
+      h(t("auth.password")) +
+      '</label><input id="a-password" type="password" autocomplete="' +
+      (isLogin ? "current-password" : "new-password") +
+      '" placeholder="••••••••" required />' +
+      (isLogin ? "" : '<div class="hint">' + h(t("auth.passwordHint")) + "</div>") +
+      "</div>" +
       (isLogin
         ? ""
-        : '<div class="field"><label for="a-city">Şehir (isteğe bağlı)</label>' +
-          '<input id="a-city" placeholder="İstanbul" /></div>') +
+        : '<div class="field"><label for="a-city">' +
+          h(t("auth.cityOptional")) +
+          '</label><input id="a-city" placeholder="' +
+          h(t("create.cityPlaceholder")) +
+          '" /></div>') +
       '<button type="submit" class="btn btn-primary btn-full" id="auth-btn">' +
-      (isLogin ? "Giriş yap" : "Hesap oluştur") + "</button>" +
-      "</form>" +
-
+      h(isLogin ? t("auth.signIn") : t("auth.signUp")) +
+      "</button></form>" +
       (isLogin
-        ? '<div class="demo-box">Denemek için hazır hesaplar:<br>' +
-          '<b>irfan@example.com</b> / irfan1234 &nbsp;<button data-fill="irfan@example.com|irfan1234">doldur</button><br>' +
-          "<b>uygulama sahibi</b> / owner1234 &nbsp;<button data-fill=\"owner@bulus.app|owner1234\">doldur</button></div>"
+        ? '<div class="demo-box">' +
+          h(t("auth.demoAccounts")) +
+          "<br><b>irfan@example.com</b> / irfan1234 &nbsp;" +
+          '<button data-fill="irfan@example.com|irfan1234">' +
+          h(t("auth.fill")) +
+          "</button><br><b>" +
+          h(t("auth.ownerAccount")) +
+          '</b> / owner1234 &nbsp;<button data-fill="owner@bulus.app|owner1234">' +
+          h(t("auth.fill")) +
+          "</button></div>"
         : "") +
-      "</div>" +
-
-      '<div class="auth-switch">' +
+      '</div><div class="auth-switch">' +
       (isLogin
-        ? 'Hesabın yok mu? <a href="#/kayit">Kayıt ol</a>'
-        : 'Zaten üye misin? <a href="#/giris">Giriş yap</a>') +
-      ' · <a href="#/">Etkinliklere göz at</a></div>' +
-      "</div>";
+        ? h(t("auth.noAccount")) + ' <a href="#/kayit">' + h(t("auth.register")) + "</a>"
+        : h(t("auth.haveAccount")) + ' <a href="#/giris">' + h(t("auth.signIn")) + "</a>") +
+      ' · <a href="#/">' +
+      h(t("auth.browse")) +
+      "</a></div></div>";
 
     view.querySelectorAll("[data-fill]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -1422,7 +1881,7 @@
       var errEl = document.getElementById("auth-error");
       errEl.hidden = true;
       btn.disabled = true;
-      btn.textContent = "Lütfen bekle…";
+      btn.textContent = t("auth.wait");
 
       var body = {
         email: document.getElementById("a-email").value,
@@ -1438,14 +1897,14 @@
           state.user = res.user;
           var next = sessionStorage.getItem("bulus.next") || "#/";
           sessionStorage.removeItem("bulus.next");
-          toast("Hoş geldin, " + res.user.name.split(" ")[0] + "!");
+          toast(t("toast.welcome", { name: res.user.name.split(" ")[0] }));
           go(next);
         })
         .catch(function (err) {
           errEl.textContent = err.message;
           errEl.hidden = false;
           btn.disabled = false;
-          btn.textContent = isLogin ? "Giriş yap" : "Hesap oluştur";
+          btn.textContent = isLogin ? t("auth.signIn") : t("auth.signUp");
         });
     });
   }
@@ -1466,6 +1925,7 @@
     var path = route.path;
 
     view.className = "container";
+    document.title = state.config.appName + " — " + t("app.tagline");
     window.scrollTo(0, 0);
 
     var m;
@@ -1482,15 +1942,13 @@
     if (path === "/panel") return viewOwner();
 
     renderShell("");
-    errorView("Aradığın sayfa yok.");
+    errorView(t("common.pageNotFound"));
   }
 
   // Kart tıklamalarını tek bir dinleyiciyle yakala.
   document.addEventListener("click", function (e) {
     var card = e.target.closest("[data-href]");
-    if (card) {
-      location.hash = card.getAttribute("data-href");
-    }
+    if (card) location.hash = card.getAttribute("data-href");
   });
 
   window.addEventListener("hashchange", render);

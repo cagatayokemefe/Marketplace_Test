@@ -2,13 +2,14 @@
    Uygulama kabuğunu önbelleğe alır; API istekleri her zaman ağdan gider.
    Böylece uygulama telefona kurulabilir ve bağlantı kopsa bile açılır. */
 
-const CACHE = "bulus-shell-v1";
+const CACHE = "bulus-shell-v2";
 
 const SHELL = [
   "./",
   "index.html",
   "style.css",
   "app.js",
+  "i18n.js",
   "manifest.webmanifest",
   "icons/icon-192.png",
   "icons/icon-512.png",

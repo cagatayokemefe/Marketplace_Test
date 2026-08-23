@@ -50,6 +50,19 @@
 
         <span class="appbar-spacer"></span>
 
+        <div class="lang-wrap">
+          <button
+            class="icon-btn lang-btn"
+            id="lang-btn"
+            title="Dili değiştir"
+            aria-label="Dili değiştir"
+            aria-haspopup="true"
+          >
+            TR
+          </button>
+          <div class="lang-menu" id="lang-menu" hidden></div>
+        </div>
+
         <button
           class="icon-btn"
           id="theme-toggle"
@@ -68,6 +81,7 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
     <script>
       if ("serviceWorker" in navigator) {

@@ -47,7 +47,13 @@ app.use(
 
 app.use(
   session({
-    store: new SQLiteStore({ db: "sessions.db", dir: __dirname, table: "sessions" }),
+    // Oturumlar veritabanıyla aynı (kalıcı) klasöre yazılır; yoksa her
+    // dağıtımdan sonra herkes çıkış yapmış olur.
+    store: new SQLiteStore({
+      db: "sessions.db",
+      dir: config.dataDir,
+      table: "sessions",
+    }),
     secret: config.sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -192,6 +198,16 @@ const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
 // ── Genel ayarlar ───────────────────────────────────────────────────────────
+
+/** Hosting sağlayıcılarının canlılık kontrolü için. */
+app.get("/api/health", (req, res) => {
+  try {
+    db.prepare("SELECT 1").get();
+    res.json({ ok: true, uptime: Math.round(process.uptime()) });
+  } catch (err) {
+    res.status(503).json({ ok: false });
+  }
+});
 
 app.get("/api/config", (req, res) => {
   const owner = db.prepare("SELECT name FROM users WHERE role = 'owner' LIMIT 1").get();
@@ -1000,7 +1016,7 @@ if (isEmpty()) {
 }
 
 if (require.main === module) {
-  app.listen(config.port, () => {
+  app.listen(config.port, config.host, () => {
     console.log(`\n  Buluş  →  http://localhost:${config.port}`);
     console.log(`  Ödeme modu: ${payments.provider}`);
     console.log(`  Uygulama sahibi: ${config.owner.email}\n`);

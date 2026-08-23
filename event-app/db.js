@@ -1,12 +1,13 @@
 "use strict";
 
 const Database = require("better-sqlite3");
-const path = require("path");
+const fs = require("fs");
+const config = require("./config");
 
-// DB_PATH ile veritabanı konumu değiştirilebilir (test ve dağıtım için).
-const dbPath = process.env.DB_PATH || path.join(__dirname, "bulus.db");
+// Konum DB_PATH ile değiştirilebilir (test ve dağıtım için).
+fs.mkdirSync(config.dataDir, { recursive: true });
 
-const db = new Database(dbPath);
+const db = new Database(config.dbPath);
 
 db.pragma("journal_mode = WAL");
 db.pragma("foreign_keys = ON");

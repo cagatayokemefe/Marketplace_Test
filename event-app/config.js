@@ -15,10 +15,21 @@ function num(value, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+const path = require("path");
+
 const stripeSecret = (process.env.STRIPE_SECRET_KEY || "").trim();
+
+// Veritabanı ve oturum dosyaları aynı klasörde durur. Sunucuda bu klasör
+// kalıcı diske (volume) bağlanmalıdır; yoksa her dağıtımda veri silinir.
+const dbPath = process.env.DB_PATH || path.join(__dirname, "bulus.db");
 
 const config = {
   port: num(process.env.PORT, 3000),
+  host: process.env.HOST || "0.0.0.0",
+
+  dbPath: dbPath,
+  dataDir: path.dirname(dbPath),
+
   publicUrl: (process.env.PUBLIC_URL || "").replace(/\/$/, ""),
 
   sessionSecret:

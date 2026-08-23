@@ -189,6 +189,41 @@ Arayüz zaten dokunmatik hedef boyutlarına, `safe-area-inset` değerlerine ve
 
 ---
 
+## Yayına alma
+
+Uygulama tek bir Node süreci ve tek bir SQLite dosyasıdır; **kalıcı disk veren**
+herhangi bir sunucuda çalışır. Vercel/Netlify gibi sunucusuz platformlar
+uygun değildir — dosya sistemi kalıcı olmadığı için veritabanı her dağıtımda silinir.
+
+Depoda hazır bir `Dockerfile` var: veriyi `/data` klasörüne yazar, `/api/health`
+ucuyla canlılık bildirir ve `0.0.0.0` üzerinden dinler.
+
+```bash
+docker build -t bulus .
+docker run -p 3000:3000 -v bulus-data:/data \
+  -e SESSION_SECRET="uzun-rastgele-bir-dize" \
+  -e PUBLIC_URL="https://senin-alan-adin.com" \
+  -e OWNER_EMAIL="sen@ornek.com" -e OWNER_PASSWORD="guclu-bir-sifre" \
+  bulus
+```
+
+Üretimde mutlaka ayarlanması gerekenler:
+
+| Değişken | Neden |
+| --- | --- |
+| `NODE_ENV=production` | Oturum çerezini `secure` yapar (yalnız HTTPS) |
+| `SESSION_SECRET` | Uzun ve rastgele olmalı; değişirse herkes çıkış yapar |
+| `PUBLIC_URL` | Stripe ödeme sonrası kullanıcıyı buraya döndürür |
+| `DB_PATH` | Kalıcı diskteki yolu göstermeli (örn. `/data/bulus.db`) |
+| `OWNER_EMAIL` / `OWNER_PASSWORD` | İlk açılışta sahip hesabı bununla kurulur |
+| `STRIPE_SECRET_KEY` | Gerçek ödeme için; yoksa demo modda kalır |
+
+> İlk açılışta veritabanı boşsa demo verisi (örnek etkinlikler ve
+> `irfan@example.com` gibi test hesapları) yüklenir. Gerçek kullanıcılara
+> açmadan önce bunları `#/panel`den ya da veritabanından temizle.
+
+---
+
 ## Mimari
 
 ```
@@ -200,6 +235,7 @@ event-app/
 ├── config.js                 Ortam değişkenlerinden yapılandırma
 ├── seed.js                   Demo verisi
 ├── capacitor.config.json     Native paketleme
+├── Dockerfile                Üretim imajı (veri /data'da)
 ├── tools/
 │   ├── make-icons.js         PNG ikon üreteci (bağımlılıksız)
 │   └── smoke-test.js         Uçtan uca test
@@ -230,6 +266,7 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 
 | Yöntem | Yol | Açıklama |
 | --- | --- | --- |
+| `GET` | `/api/health` | Canlılık kontrolü (hosting sağlayıcıları için) |
 | `GET` | `/api/config` | Uygulama adı, para birimi, ödeme modu, desteklenen diller |
 | `POST` | `/api/auth/register` · `/login` · `/logout` | Oturum yönetimi |
 | `GET` `PATCH` | `/api/me` | Profil |

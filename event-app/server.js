@@ -35,7 +35,14 @@ app.use(
   }),
 );
 
-app.use(express.json({ limit: "256kb" }));
+// Stripe webhook'unun imzası ham gövde üzerinden doğrulanır, bu yüzden o yolda
+// JSON ayrıştırıcı devreye girmemeli.
+const WEBHOOK_PATH = "/api/stripe/webhook";
+const jsonParser = express.json({ limit: "256kb" });
+app.use((req, res, next) => {
+  if (req.path === WEBHOOK_PATH) return next();
+  jsonParser(req, res, next);
+});
 app.use(
   express.static(path.join(__dirname, "public"), {
     index: false,
@@ -120,6 +127,7 @@ function publicUser(u) {
     role: u.role,
     city: u.city,
     bio: u.bio,
+    payoutsReady: !!(u.stripe_account_id && u.stripe_charges_enabled),
     initials: u.name
       .split(/\s+/)
       .slice(0, 2)
@@ -197,6 +205,74 @@ function splitAmount(amountMinor) {
 const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
 
+/** Kullanıcının Connect hesabının para almaya hazır olup olmadığı. */
+function payoutState(user) {
+  if (!user) return { connected: false, ready: false, accountId: null };
+  return {
+    connected: !!user.stripe_account_id,
+    ready: !!(user.stripe_account_id && user.stripe_charges_enabled),
+    accountId: user.stripe_account_id || null,
+    chargesEnabled: !!user.stripe_charges_enabled,
+    payoutsEnabled: !!user.stripe_payouts_enabled,
+    detailsSubmitted: !!user.stripe_details_submitted,
+  };
+}
+
+/** Etkinliğin organizatörünün payının nereye gideceği. */
+function organizerPayoutTarget(event) {
+  if (!payments.connectEnabled) return { destination: null };
+  const organizer = db
+    .prepare("SELECT * FROM users WHERE id = ?")
+    .get(event.organizer_id);
+  const state = payoutState(organizer);
+  return { destination: state.ready ? state.accountId : null };
+}
+
+/**
+ * Ödemeyi "ödendi" yapıp kaydı onaylar. Hem tarayıcı dönüşünden hem webhook'tan
+ * çağrılabildiği için idempotent: ikinci çağrı hiçbir şeyi bozmaz.
+ * @returns {string|null} bilet kodu
+ */
+function finalizePayment(paymentId, { cardLast4 = null, providerRef = null } = {}) {
+  return db.transaction(() => {
+    const row = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId);
+    if (!row) return null;
+
+    const ticketOf = () =>
+      db.prepare("SELECT ticket_code FROM registrations WHERE id = ?").get(
+        row.registration_id,
+      ).ticket_code;
+
+    if (row.status === "paid") return ticketOf();
+    if (row.status !== "pending") return null;
+
+    db.prepare(
+      `UPDATE payments
+         SET status = 'paid',
+             paid_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+             card_last4 = COALESCE(?, card_last4),
+             provider_ref = COALESCE(?, provider_ref)
+       WHERE id = ? AND status = 'pending'`,
+    ).run(cardLast4, providerRef, paymentId);
+
+    db.prepare("UPDATE registrations SET status = 'confirmed' WHERE id = ?").run(
+      row.registration_id,
+    );
+    return ticketOf();
+  })();
+}
+
+/** Parayı geri verir ve kaydı iptal eder. Connect ödemelerinde pay da geri alınır. */
+async function refundPayment(payment) {
+  await payments.refund(payment);
+  db.transaction(() => {
+    db.prepare("UPDATE payments SET status = 'refunded' WHERE id = ?").run(payment.id);
+    db.prepare("UPDATE registrations SET status = 'cancelled' WHERE id = ?").run(
+      payment.registration_id,
+    );
+  })();
+}
+
 // ── Genel ayarlar ───────────────────────────────────────────────────────────
 
 /** Hosting sağlayıcılarının canlılık kontrolü için. */
@@ -218,6 +294,7 @@ app.get("/api/config", (req, res) => {
     currencySymbol: config.currencySymbol,
     commissionRate: config.commissionRate,
     ownerName: owner ? owner.name : config.owner.name,
+    connectEnabled: payments.connectEnabled,
     languages: SUPPORTED,
     defaultLanguage: config.defaultLang,
     language: langOf(req),
@@ -575,6 +652,10 @@ app.post(
     // Ücretli etkinlik: bekleyen kayıt + bekleyen ödeme
     const { commission, organizerShare } = splitAmount(event.price_minor);
 
+    // Organizatörün Stripe hesabı hazırsa payı ödeme anında oraya geçer.
+    const target = organizerPayoutTarget(event);
+    const payoutMode = target.destination ? "connect" : "platform";
+
     const created = db.transaction(() => {
       let registrationId;
       if (existing) {
@@ -599,8 +680,9 @@ app.post(
         .prepare(
           `INSERT INTO payments
              (registration_id, event_id, user_id, amount_minor, currency, provider,
-              status, commission_minor, organizer_share_minor)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+              status, commission_minor, organizer_share_minor,
+              payout_mode, transfer_destination)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
         )
         .run(
           registrationId,
@@ -611,6 +693,8 @@ app.post(
           payments.provider,
           commission,
           organizerShare,
+          payoutMode,
+          target.destination,
         ).lastInsertRowid;
 
       return { registrationId, paymentId };
@@ -625,6 +709,9 @@ app.post(
         event,
         user: req.user,
         baseUrl: baseUrl(req),
+        split: target.destination
+          ? { destination: target.destination, commissionMinor: commission }
+          : null,
       });
     } catch (err) {
       db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
@@ -652,6 +739,7 @@ app.post(
       currency: payment.currency,
       mode: checkout.mode,
       checkoutUrl: checkout.checkoutUrl || null,
+      payoutMode,
     });
   }),
 );
@@ -709,11 +797,6 @@ app.post(
     }
 
     const event = db.prepare("SELECT * FROM events WHERE id = ?").get(payment.event_id);
-    const attendeeCount = attendeeCountStmt.get(event.id).c;
-    if (attendeeCount >= event.capacity) {
-      db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
-      return res.status(409).json({ error: t(req, "payment.capacityFilled") });
-    }
 
     let cardLast4 = null;
     let providerRef = payment.provider_ref;
@@ -762,24 +845,187 @@ app.post(
       providerRef = "demo_" + Date.now().toString(36);
     }
 
-    const ticket = db.transaction(() => {
-      db.prepare(
-        `UPDATE payments
-           SET status = 'paid', paid_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
-               card_last4 = ?, provider_ref = ?
-         WHERE id = ?`,
-      ).run(cardLast4, providerRef, payment.id);
+    // Kontenjan kontrolü ödeme doğrulandıktan SONRA yapılır: kullanıcı Stripe'ta
+    // iken etkinlik dolmuş olabilir ve o durumda para çekilmiş olur.
+    const attendeeCount = attendeeCountStmt.get(event.id).c;
+    if (attendeeCount >= event.capacity) {
+      if (payment.provider === "stripe") {
+        try {
+          await refundPayment(Object.assign({}, payment, { provider_ref: providerRef }));
+        } catch (err) {
+          // İade başarısızsa ödemeyi 'pending' bırak: sahibin panelinde
+          // görünür kalsın, sessizce kaybolmasın.
+          console.error("Kontenjan dolu, iade başarısız:", payment.id, err);
+          return res
+            .status(502)
+            .json({ error: t(req, "reg.refundFailed", { reason: err.message }) });
+        }
+        return res
+          .status(409)
+          .json({ error: t(req, "payment.capacityFilledRefunded") });
+      }
+      db.prepare("UPDATE payments SET status = 'failed' WHERE id = ?").run(payment.id);
+      return res.status(409).json({ error: t(req, "payment.capacityFilled") });
+    }
 
-      db.prepare("UPDATE registrations SET status = 'confirmed' WHERE id = ?").run(
-        payment.registration_id,
-      );
-
-      return db
-        .prepare("SELECT ticket_code FROM registrations WHERE id = ?")
-        .get(payment.registration_id).ticket_code;
-    })();
+    const ticket = finalizePayment(payment.id, { cardLast4, providerRef });
 
     res.json({ status: "paid", ticketCode: ticket, eventId: payment.event_id });
+  }),
+);
+
+// ── Stripe webhook ──────────────────────────────────────────────────────────
+
+/**
+ * Kullanıcı ödeme sonrası tarayıcıyı kapatsa bile ödemeyi tamamlar.
+ * Ham gövde üzerinden imza doğrulanır; sahte istekler reddedilir.
+ */
+app.post(
+  WEBHOOK_PATH,
+  express.raw({ type: "application/json" }),
+  asyncRoute(async (req, res) => {
+    if (!payments.webhookConfigured) {
+      return res.status(503).json({ error: "Webhook is not configured." });
+    }
+
+    let event;
+    try {
+      event = payments.verifyWebhookSignature(req.body, req.get("Stripe-Signature"));
+    } catch (err) {
+      console.warn("Webhook imzası reddedildi:", err.message);
+      return res.status(400).json({ error: "Invalid signature." });
+    }
+
+    const handled = [
+      "checkout.session.completed",
+      "checkout.session.async_payment_succeeded",
+    ];
+
+    if (handled.includes(event.type)) {
+      const session = event.data && event.data.object;
+      const paymentId = Number(
+        (session && session.metadata && session.metadata.payment_id) ||
+          (session && session.client_reference_id),
+      );
+
+      if (session && session.payment_status === "paid" && Number.isFinite(paymentId)) {
+        const payment = db.prepare("SELECT * FROM payments WHERE id = ?").get(paymentId);
+
+        if (payment && payment.status === "pending") {
+          const eventRow = db
+            .prepare("SELECT * FROM events WHERE id = ?")
+            .get(payment.event_id);
+          const providerRef = session.payment_intent || session.id;
+          const attendeeCount = attendeeCountStmt.get(eventRow.id).c;
+
+          if (attendeeCount >= eventRow.capacity) {
+            // Kontenjan dolmuşken para çekilmiş: hemen geri ver.
+            try {
+              await refundPayment(
+                Object.assign({}, payment, { provider_ref: providerRef }),
+              );
+            } catch (err) {
+              console.error("Webhook iadesi başarısız:", payment.id, err);
+            }
+          } else {
+            finalizePayment(payment.id, { providerRef });
+          }
+        }
+      }
+    }
+
+    // Stripe 2xx görmezse tekrar dener; işlenmeyen türler için de onay veriyoruz.
+    res.json({ received: true });
+  }),
+);
+
+// ── Organizatör ödeme hesabı (Stripe Connect) ───────────────────────────────
+
+app.get("/api/me/payouts", requireAuth, (req, res) => {
+  res.json({
+    enabled: payments.connectEnabled,
+    provider: payments.provider,
+    country: config.connect.country,
+    commissionRate: config.commissionRate,
+    ...payoutState(req.user),
+  });
+});
+
+/** Hesabı açar (yoksa) ve Stripe'ın kurulum ekranına giden bağlantıyı verir. */
+app.post(
+  "/api/me/payouts/onboard",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    if (!payments.connectEnabled) {
+      return res.status(400).json({ error: t(req, "payouts.disabled") });
+    }
+
+    let accountId = req.user.stripe_account_id;
+    if (!accountId) {
+      const account = await payments.createConnectedAccount({ user: req.user });
+      accountId = account.id;
+      db.prepare("UPDATE users SET stripe_account_id = ? WHERE id = ?").run(
+        accountId,
+        req.user.id,
+      );
+    }
+
+    const base = baseUrl(req);
+    const link = await payments.createAccountLink({
+      accountId,
+      refreshUrl: `${base}/#/profile?payouts=refresh`,
+      returnUrl: `${base}/#/profile?payouts=done`,
+    });
+
+    // Demo modunda Stripe ekranı yok; hesap anında hazır sayılır.
+    if (link.demo) {
+      db.prepare(
+        `UPDATE users SET stripe_charges_enabled = 1, stripe_payouts_enabled = 1,
+                          stripe_details_submitted = 1 WHERE id = ?`,
+      ).run(req.user.id);
+    }
+
+    res.json({ url: link.url, demo: !!link.demo });
+  }),
+);
+
+/** Hesabın güncel durumunu Stripe'tan çeker. */
+app.post(
+  "/api/me/payouts/refresh",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    if (!req.user.stripe_account_id) {
+      return res.json(payoutState(req.user));
+    }
+
+    const account = await payments.retrieveAccount(req.user.stripe_account_id);
+    db.prepare(
+      `UPDATE users
+         SET stripe_charges_enabled = ?, stripe_payouts_enabled = ?,
+             stripe_details_submitted = ?
+       WHERE id = ?`,
+    ).run(
+      account.chargesEnabled ? 1 : 0,
+      account.payoutsEnabled ? 1 : 0,
+      account.detailsSubmitted ? 1 : 0,
+      req.user.id,
+    );
+
+    const fresh = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+    res.json(payoutState(fresh));
+  }),
+);
+
+/** Organizatörü kendi Stripe paneline götüren bağlantı. */
+app.get(
+  "/api/me/payouts/dashboard",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    if (!req.user.stripe_account_id) {
+      return res.status(404).json({ error: t(req, "payouts.notConnected") });
+    }
+    const link = await payments.createLoginLink(req.user.stripe_account_id);
+    res.json({ url: link.url, demo: !!link.demo });
   }),
 );
 
@@ -918,6 +1164,10 @@ app.get("/api/owner/summary", requireAuth, requireOwner, (req, res) => {
          COALESCE(SUM(CASE WHEN status='paid' THEN amount_minor END),0)          AS gross,
          COALESCE(SUM(CASE WHEN status='paid' THEN commission_minor END),0)      AS commission,
          COALESCE(SUM(CASE WHEN status='paid' THEN organizer_share_minor END),0) AS organizer_payable,
+         COALESCE(SUM(CASE WHEN status='paid' AND payout_mode='connect'
+                           THEN organizer_share_minor END),0)                   AS organizer_auto,
+         COALESCE(SUM(CASE WHEN status='paid' AND payout_mode='platform'
+                           THEN organizer_share_minor END),0)                   AS organizer_manual,
          COALESCE(SUM(CASE WHEN status='refunded' THEN amount_minor END),0)      AS refunded,
          COUNT(CASE WHEN status='paid' THEN 1 END)                               AS paid_count,
          COUNT(CASE WHEN status='pending' THEN 1 END)                            AS pending_count
@@ -957,6 +1207,7 @@ app.get("/api/owner/summary", requireAuth, requireOwner, (req, res) => {
     currency: config.currency,
     commissionRate: config.commissionRate,
     provider: payments.provider,
+    connectEnabled: payments.connectEnabled,
   });
 });
 
@@ -981,6 +1232,7 @@ app.get("/api/owner/payments", requireAuth, requireOwner, (req, res) => {
       amountMinor: p.amount_minor,
       commissionMinor: p.commission_minor,
       organizerShareMinor: p.organizer_share_minor,
+      payoutMode: p.payout_mode,
       currency: p.currency,
       status: p.status,
       provider: p.provider,

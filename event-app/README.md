@@ -4,8 +4,9 @@
 
 A Meetup-style event app. Someone opens a volleyball game, whoever wants to
 play reserves a spot, pays the participation fee inside the app, and gets a
-ticket code the host validates at the door. **Every payment is collected by the
-app owner**; the host's share is tracked separately as an amount payable.
+ticket code the host validates at the door. **Money is split automatically at
+the moment of payment**: the host's share goes straight to their own account,
+the commission to the app owner's.
 
 One codebase runs in three places:
 
@@ -38,7 +39,7 @@ five-a-side football, yoga, a forest hike) is loaded automatically.
 | --- | --- | --- | --- |
 | Attendee | `irfan@example.com` | `irfan1234` | Joins events, pays, gets a ticket |
 | Host | `zeynep@example.com` | `zeynep1234` | Attendee list and door check-in for their own events |
-| **App owner** | `owner@meetapp.app` | `owner1234` | Revenue dashboard: everything collected, commission, amounts owed to hosts |
+| **App owner** | `owner@meetapp.app` | `owner1234` | Revenue dashboard: everything collected, commission, what went out automatically and what is still owed |
 
 ### Language
 
@@ -66,8 +67,8 @@ npm run icons    # regenerate the app icons
 3. **Holding the spot** — On tap, the server checks capacity and opens a
    registration and a payment, both `pending`.
 4. **Payment** — The checkout screen shows the amount and an event summary. Once
-   the payment succeeds the registration becomes `confirmed` and the amount is
-   credited to the app owner.
+   the payment succeeds the registration becomes `confirmed`, the host's share
+   goes to their account and the commission to the owner's.
 5. **Ticket** — İrfan gets an entry code like `ABCD-1234`. At the venue the host
    types it into **Attendees → Check-in**; the same code is refused the second time.
 6. **Cancelling** — More than 6 hours before the event İrfan can cancel and is
@@ -77,19 +78,30 @@ npm run icons    # regenerate the app icons
 
 ## How the money flows
 
+There are two routes, and which one applies depends on whether the host has
+connected a payout account.
+
+**Host connected (automatic, the default):**
+
 ```
-İrfan's card ──► App owner's account ──► (after the event) the host
-                 ▲                        ▲
-                 │                        │
-        the full amount            share minus commission
+İrfan's card ──► Stripe splits it at the moment of payment
+                   ├──► host's own account      (90%)
+                   └──► app owner's account     (10% commission)
 ```
 
-- **All** of what the attendee pays goes to the app owner.
-- Each payment records `commission_minor` (the owner's cut) and
-  `organizer_share_minor` (owed to the host) separately.
+**Host not connected (fallback):**
+
+```
+İrfan's card ──► App owner's account ──► (later) the host, by hand
+```
+
 - The commission rate is set with `COMMISSION_RATE` (default `0.10` = 10%).
-- On `#/dashboard` the owner sees total collected, commission, what is owed to
-  hosts, refunds and a full payment breakdown.
+- Each payment records `commission_minor` (the owner's cut),
+  `organizer_share_minor` (the host's cut) and `payout_mode`
+  (`connect` = already sent, `platform` = still owed).
+- On `#/dashboard` the owner sees total collected, commission, how much went
+  out automatically, how much is still owed by hand, refunds, and a full
+  payment breakdown.
 
 Amounts are stored as integers in **minor units** (cents) — no floating-point
 rounding drift. ₺150 → `15000`.
@@ -107,6 +119,47 @@ calls the REST API directly.
 
 > Card details are never written to the database in either mode; only the last
 > four digits are kept (in demo mode) for the receipt.
+
+### Automatic payouts to hosts (Stripe Connect)
+
+A host opens **Profile → My payout account** and connects a Stripe account.
+Stripe runs the whole identity check, tax form and bank details flow on its own
+hosted pages — none of that data touches this app. Once the account is active,
+every ticket for that host's events is split at the moment of payment: the
+host's share lands in their account, the commission in the owner's.
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /api/me/payouts/onboard` | Creates the connected account if needed, returns the Stripe onboarding link |
+| `POST /api/me/payouts/refresh` | Re-reads the account status from Stripe |
+| `GET` `/api/me/payouts` | Current status (connected / ready) |
+| `GET` `/api/me/payouts/dashboard` | One-time link to the host's own Stripe dashboard |
+
+Technically this is a *destination charge*: the Checkout Session carries
+`transfer_data[destination]` and `application_fee_amount`, so Stripe moves the
+money and takes the commission back to the platform in one step. Refunds use
+`reverse_transfer` and `refund_application_fee`, so a cancellation pulls the
+money back from both sides instead of coming out of the owner's pocket alone.
+
+Hosts without a connected account still work: their events fall back to the
+platform route above and the amount owed shows up in the owner's dashboard.
+Set `STRIPE_CONNECT=false` to switch automatic payouts off entirely.
+
+> Connect adds Stripe costs per connected account and per payout. Check the
+> current figures at [stripe.com/connect/pricing](https://stripe.com/connect/pricing).
+
+### Confirming payments reliably
+
+`POST /api/stripe/webhook` listens for `checkout.session.completed`. Without it,
+a payment is only confirmed when the buyer's browser returns from Stripe — so
+someone who pays and closes the tab would be charged without getting a ticket.
+Set `STRIPE_WEBHOOK_SECRET` and point a Stripe webhook at that URL. The
+signature is verified against the raw request body, replays outside a 5-minute
+window are rejected, and confirmation is idempotent, so the webhook and the
+browser return can both arrive without double-booking.
+
+If an event fills up while a buyer is on Stripe's page, the payment is refunded
+automatically instead of leaving them charged with no spot.
 
 ---
 
@@ -287,6 +340,8 @@ SQLite transaction, so no half-finished state can survive.
 | `POST` | `/api/registrations/:id/cancel` | Cancel + refund |
 | `GET` | `/api/events/:id/attendees` | Attendee list (host) |
 | `POST` | `/api/events/:id/checkin` | Validate a ticket code (host) |
+| `POST` | `/api/stripe/webhook` | Stripe payment confirmations (signature verified) |
+| `GET` `POST` | `/api/me/payouts` · `/onboard` · `/refresh` · `/dashboard` | Host payout account (Connect) |
 | `GET` | `/api/my/registrations` · `/my/events` · `/my/payments` | The user's own data |
 | `GET` | `/api/owner/summary` · `/owner/payments` | Revenue dashboard (owner only) |
 
@@ -311,9 +366,11 @@ SQLite transaction, so no half-finished state can survive.
 npm run smoke
 ```
 
-41 checks: signup validation, search, payment required for paid events, declined
+60 checks: signup validation, search, payment required for paid events, declined
 card, successful payment and ticket generation, duplicate-join guard, instant
 confirmation for free events, host check-in and its reuse guard, authorization
 boundaries, refunds and how they land in the revenue report, language
-negotiation (`X-Lang`, `?lang=`, falling back to the default) and translated
-validation messages.
+negotiation (`X-Lang`, `?lang=`, falling back to the default), translated
+validation messages, Connect onboarding and the automatic split, webhook
+signature rejection (wrong signature and replayed timestamp) plus idempotent
+confirmation, and the capacity race where a payment has to be refunded.

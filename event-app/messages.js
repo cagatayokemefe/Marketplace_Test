@@ -55,6 +55,8 @@ const DICT = {
     "payment.notFound": "Ödeme bulunamadı.",
     "payment.notCompletable": "Bu ödeme artık tamamlanamaz.",
     "payment.capacityFilled": "Kontenjan bu sırada doldu. Ücret alınmadı.",
+    "payment.capacityFilledRefunded":
+      "Kontenjan bu sırada doldu. Ödemen iade edildi.",
     "payment.sessionMissing": "Ödeme oturumu bulunamadı.",
     "payment.verifyFailed": "Ödeme doğrulanamadı: {reason}",
     "payment.notPaid": "Ödeme henüz tamamlanmamış.",
@@ -63,6 +65,9 @@ const DICT = {
     "payment.cvcInvalid": "CVC geçersiz.",
     "payment.holderRequired": "Kart üzerindeki ismi gir.",
     "payment.declined": "Kart reddedildi. Başka bir kart dene.",
+
+    "payouts.disabled": "Otomatik ödeme bu kurulumda kapalı.",
+    "payouts.notConnected": "Önce ödeme hesabını bağlaman gerekiyor.",
 
     "reg.notFound": "Kayıt bulunamadı.",
     "reg.alreadyCancelled": "Kayıt zaten iptal edilmiş.",
@@ -114,6 +119,8 @@ const DICT = {
     "payment.notFound": "Payment not found.",
     "payment.notCompletable": "This payment can no longer be completed.",
     "payment.capacityFilled": "The event filled up in the meantime. You were not charged.",
+    "payment.capacityFilledRefunded":
+      "The event filled up in the meantime. Your payment has been refunded.",
     "payment.sessionMissing": "Payment session not found.",
     "payment.verifyFailed": "Could not verify the payment: {reason}",
     "payment.notPaid": "The payment has not been completed yet.",
@@ -122,6 +129,9 @@ const DICT = {
     "payment.cvcInvalid": "That CVC is not valid.",
     "payment.holderRequired": "Enter the name on the card.",
     "payment.declined": "Card declined. Try another card.",
+
+    "payouts.disabled": "Automatic payouts are switched off in this setup.",
+    "payouts.notConnected": "Connect your payout account first.",
 
     "reg.notFound": "Registration not found.",
     "reg.alreadyCancelled": "This registration is already cancelled.",

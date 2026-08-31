@@ -19,9 +19,12 @@ const tmpDb = path.join(
 );
 process.env.DB_PATH = tmpDb;
 process.env.SESSION_SECRET = "smoke-test-secret";
+process.env.STRIPE_WEBHOOK_SECRET = "whsec_smoke_test";
 delete process.env.STRIPE_SECRET_KEY;
 
+const crypto = require("crypto");
 const app = require("../server");
+const db = require("../db");
 
 let failures = 0;
 let checks = 0;
@@ -327,7 +330,208 @@ function client(baseUrl, lang) {
       r.data.error,
     );
 
-    // ── 13. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 13. Organizatör ödeme hesabı (Connect) ──────────────────────────────
+    r = await zeynep("GET", "/api/me/payouts");
+    ok(r.status === 200 && r.data.enabled === true, "Connect açık olarak bildiriliyor");
+    ok(r.data.connected === false, "Hesap başlangıçta bağlı değil");
+
+    r = await zeynep("POST", "/api/me/payouts/onboard");
+    ok(r.status === 200 && r.data.demo === true, "Demo modunda kurulum anında tamamlanıyor");
+
+    r = await zeynep("GET", "/api/me/payouts");
+    ok(r.data.connected && r.data.ready, "Kurulumdan sonra hesap para almaya hazır");
+
+    // Hesabı bağlı organizatörün etkinliğinde pay otomatik ayrılmalı
+    r = await zeynep("POST", "/api/events", {
+      title: "Connect Test Etkinliği",
+      city: "İstanbul",
+      cover: "🏐",
+      startsAt: new Date(Date.now() + 4 * 86400000).toISOString(),
+      capacity: 10,
+      priceMinor: 30000,
+    });
+    ok(r.status === 201, "Bağlı organizatör etkinlik oluşturdu");
+    const connectEvent = r.data.event;
+
+    r = await irfan("POST", "/api/events/" + connectEvent.id + "/join");
+    ok(
+      r.data.payoutMode === "connect",
+      "Hesap bağlıyken ödeme otomatik bölüşüme ayarlanıyor",
+      JSON.stringify(r.data),
+    );
+    const connectPaymentId = r.data.paymentId;
+
+    r = await irfan("POST", "/api/payments/" + connectPaymentId + "/confirm", {
+      holder: "Irfan Test",
+      cardNumber: "4242424242424242",
+      expiry: "12/29",
+      cvc: "123",
+    });
+    ok(r.status === 200, "Otomatik bölüşümlü ödeme alındı");
+
+    r = await owner("GET", "/api/owner/summary");
+    ok(
+      r.data.totals.organizer_auto >= 27000,
+      "Organizatör payı 'otomatik ödenen' olarak raporlanıyor (" +
+        r.data.totals.organizer_auto +
+        ")",
+    );
+    ok(
+      r.data.totals.organizer_auto + r.data.totals.organizer_manual ===
+        r.data.totals.organizer_payable,
+      "Otomatik + elle = toplam organizatör payı",
+    );
+
+    // ── 14. Webhook ─────────────────────────────────────────────────────────
+    function signedWebhook(payload) {
+      const body = JSON.stringify(payload);
+      const ts = Math.floor(Date.now() / 1000);
+      const signature = crypto
+        .createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET)
+        .update(ts + "." + body)
+        .digest("hex");
+      return { body, header: "t=" + ts + ",v1=" + signature };
+    }
+
+    async function postWebhook(payload, headerOverride) {
+      const signed = signedWebhook(payload);
+      const res = await fetch(baseUrl + "/api/stripe/webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Stripe-Signature": headerOverride || signed.header,
+        },
+        body: signed.body,
+      });
+      return { status: res.status, data: await res.json().catch(() => ({})) };
+    }
+
+    const freshTs = Math.floor(Date.now() / 1000);
+    r = await postWebhook(
+      { type: "checkout.session.completed" },
+      "t=" + freshTs + ",v1=" + "0".repeat(64),
+    );
+    ok(r.status === 400, "Yanlış imzalı webhook reddediliyor");
+
+    // Doğru imza ama eski zaman damgası: tekrar saldırısına karşı
+    const staleBody = JSON.stringify({ type: "checkout.session.completed" });
+    const staleTs = Math.floor(Date.now() / 1000) - 3600;
+    const staleSig = crypto
+      .createHmac("sha256", process.env.STRIPE_WEBHOOK_SECRET)
+      .update(staleTs + "." + staleBody)
+      .digest("hex");
+    const staleRes = await fetch(baseUrl + "/api/stripe/webhook", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Stripe-Signature": "t=" + staleTs + ",v1=" + staleSig,
+      },
+      body: staleBody,
+    });
+    ok(staleRes.status === 400, "Zamanı geçmiş webhook reddediliyor");
+
+    // Bekleyen bir ödeme oluştur, webhook onu tamamlasın
+    const ayseWebhook = client(baseUrl);
+    await ayseWebhook("POST", "/api/auth/register", {
+      name: "Webhook Test",
+      email: "webhook.test@example.com",
+      password: "webhook1234",
+    });
+    r = await ayseWebhook("POST", "/api/events/" + connectEvent.id + "/join");
+    const pendingId = r.data.paymentId;
+
+    r = await postWebhook({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          payment_status: "paid",
+          payment_intent: "pi_smoke_test",
+          metadata: { payment_id: String(pendingId) },
+        },
+      },
+    });
+    ok(r.status === 200, "Geçerli webhook kabul ediliyor");
+
+    r = await ayseWebhook("GET", "/api/my/registrations");
+    ok(
+      r.data.registrations.some(
+        (x) => x.eventId === connectEvent.id && x.status === "confirmed",
+      ),
+      "Webhook, tarayıcı dönmeden ödemeyi tamamlıyor",
+    );
+
+    // Aynı webhook ikinci kez gelirse bozulmamalı
+    r = await postWebhook({
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          payment_status: "paid",
+          payment_intent: "pi_smoke_test",
+          metadata: { payment_id: String(pendingId) },
+        },
+      },
+    });
+    ok(r.status === 200, "Tekrarlanan webhook sorun çıkarmıyor (idempotent)");
+
+    // ── 15. Kontenjan yarışı ────────────────────────────────────────────────
+    r = await zeynep("POST", "/api/events", {
+      title: "Tek Kişilik Etkinlik",
+      city: "İstanbul",
+      startsAt: new Date(Date.now() + 5 * 86400000).toISOString(),
+      capacity: 1,
+      priceMinor: 5000,
+    });
+    const tinyEvent = r.data.event;
+
+    const racerA = client(baseUrl);
+    const racerB = client(baseUrl);
+    await racerA("POST", "/api/auth/register", {
+      name: "Racer A",
+      email: "racer.a@example.com",
+      password: "racer1234",
+    });
+    await racerB("POST", "/api/auth/register", {
+      name: "Racer B",
+      email: "racer.b@example.com",
+      password: "racer1234",
+    });
+
+    // İkisi de yer ayırıyor (ikisi de 'pending'), sonra A önce ödüyor
+    r = await racerA("POST", "/api/events/" + tinyEvent.id + "/join");
+    const payA = r.data.paymentId;
+    r = await racerB("POST", "/api/events/" + tinyEvent.id + "/join");
+    const payB = r.data.paymentId;
+
+    const card = { holder: "Racer", cardNumber: "4242424242424242", expiry: "12/29", cvc: "123" };
+    r = await racerA("POST", "/api/payments/" + payA + "/confirm", card);
+    ok(r.status === 200, "Yarışı kazanan ödeme tamamlanıyor");
+
+    // B'nin ödemesini Stripe ödemesiymiş gibi işaretle ki iade yolu çalışsın
+    db.prepare("UPDATE payments SET provider = 'stripe', provider_ref = ? WHERE id = ?").run(
+      "pi_race_test",
+      payB,
+    );
+
+    r = await racerB("POST", "/api/payments/" + payB + "/confirm", { sessionId: "cs_race" });
+    ok(r.status === 409, "Kontenjan dolduysa ödeme onaylanmıyor");
+    ok(
+      /iade edildi|refunded/i.test(r.data.error || ""),
+      "Kullanıcıya ücretin iade edildiği söyleniyor",
+      r.data.error,
+    );
+
+    const racerBPayment = db.prepare("SELECT * FROM payments WHERE id = ?").get(payB);
+    ok(racerBPayment.status === "refunded", "Ödeme kaydı 'refunded' olarak işaretlendi");
+
+    r = await racerB("GET", "/api/my/registrations");
+    ok(
+      r.data.registrations.every(
+        (x) => x.eventId !== tinyEvent.id || x.status === "cancelled",
+      ),
+      "İade edilen kayıt iptal edildi",
+    );
+
+    // ── 16. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

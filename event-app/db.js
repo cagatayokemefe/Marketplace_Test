@@ -88,4 +88,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
 `);
 
+/**
+ * Sonradan eklenen sütunlar. SQLite'ta "ADD COLUMN IF NOT EXISTS" yok, o yüzden
+ * önce tabloya bakıp gerekirse ekliyoruz. Böylece var olan veritabanları
+ * silinmeden yeni sürüme geçebiliyor.
+ */
+function addColumn(table, column, definition) {
+  const exists = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((c) => c.name === column);
+  if (!exists) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
+// Organizatörün Stripe Connect hesabı (payı doğrudan buraya geçer).
+addColumn("users", "stripe_account_id", "TEXT");
+addColumn("users", "stripe_charges_enabled", "INTEGER NOT NULL DEFAULT 0");
+addColumn("users", "stripe_payouts_enabled", "INTEGER NOT NULL DEFAULT 0");
+addColumn("users", "stripe_details_submitted", "INTEGER NOT NULL DEFAULT 0");
+
+// Ödemenin nasıl bölündüğü: 'connect' = organizatör payı otomatik gitti,
+// 'platform' = para sahipte toplandı, elle aktarılacak.
+addColumn("payments", "payout_mode", "TEXT NOT NULL DEFAULT 'platform'");
+addColumn("payments", "transfer_destination", "TEXT");
+
 module.exports = db;

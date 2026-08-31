@@ -1411,14 +1411,9 @@
       '</label><input id="c-price" type="number" min="0" step="1" value="150" />' +
       '<div class="hint">' +
       h(t("create.priceHint")) +
-      '</div></div></div><div class="alert alert-info">' +
-      h(
-        t("create.payoutNote", {
-          owner: state.config.ownerName,
-          percent: Math.round((1 - state.config.commissionRate) * 100),
-        }),
-      ) +
-      '</div><button type="submit" class="btn btn-primary btn-full" id="create-btn">' +
+      '</div></div></div>' +
+      payoutNoticeHtml() +
+      '<button type="submit" class="btn btn-primary btn-full" id="create-btn">' +
       h(t("create.submit")) +
       "</button></form></div>";
 
@@ -1475,14 +1470,46 @@
     });
   }
 
+  /**
+   * Etkinlik oluştururken paranın nereye gideceğini anlatan kutu.
+   * Connect kapalıysa eski (elle aktarım) metni; açıksa hesabın durumuna göre
+   * otomatik bölüşüm bilgisi ya da uyarı gösterilir.
+   */
+  function payoutNoticeHtml() {
+    var percent = Math.round((1 - state.config.commissionRate) * 100);
+
+    if (!state.config.connectEnabled) {
+      return (
+        '<div class="alert alert-info">' +
+        h(t("create.payoutNote", { owner: state.config.ownerName, percent: percent })) +
+        "</div>"
+      );
+    }
+    if (state.user.payoutsReady) {
+      return (
+        '<div class="alert alert-info">' +
+        h(t("create.payoutAuto", { percent: percent })) +
+        "</div>"
+      );
+    }
+    return (
+      '<div class="alert alert-error">' +
+      h(t("create.payoutWarning", { owner: state.config.ownerName })) +
+      "</div>"
+    );
+  }
+
   // ── Görünüm: Profil ──────────────────────────────────────────────────────
 
-  function viewProfile() {
+  function viewProfile(query) {
     renderShell("profile");
     document.body.classList.remove("has-action-bar");
     if (!state.user) return requireLogin("#/profile");
 
     var u = state.user;
+    // Stripe kurulum ekranından dönüldüyse durumu tazele.
+    var returningFromStripe =
+      query && (query.get("payouts") === "done" || query.get("payouts") === "refresh");
 
     view.innerHTML =
       '<div class="card" style="text-align:center">' +
@@ -1505,6 +1532,9 @@
           h(t("profile.openPanel")) +
           "</a></div>"
         : "") +
+      '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+      h(t("payouts.title")) +
+      '</h2><div id="payouts-slot"><div class="skeleton" style="height:70px"></div></div></div>' +
       '<div class="card"><h2 class="section-title" style="margin-top:0">' +
       h(t("profile.language")) +
       '</h2><div class="chips" id="lang-chips">' +
@@ -1600,6 +1630,8 @@
       });
     });
 
+    loadPayouts(returningFromStripe);
+
     api("/my/payments").then(function (data) {
       var slot = document.getElementById("pay-history");
       if (!slot) return;
@@ -1643,6 +1675,129 @@
     });
   }
 
+  /** Organizatörün Stripe hesabının durumunu yükler ve karta basar. */
+  function loadPayouts(forceRefresh) {
+    var request = forceRefresh
+      ? api("/me/payouts/refresh", { method: "POST" }).then(function () {
+          return api("/me/payouts");
+        })
+      : api("/me/payouts");
+
+    request
+      .then(function (info) {
+        if (forceRefresh) {
+          toast(t("payouts.refreshed"));
+          // Sunucudaki hazırlık durumu değişmiş olabilir.
+          api("/me").then(function (me) {
+            if (me.user) state.user = me.user;
+          });
+        }
+        renderPayouts(info);
+      })
+      .catch(function (err) {
+        var slot = document.getElementById("payouts-slot");
+        if (slot) slot.innerHTML = '<div class="alert alert-error">' + h(err.message) + "</div>";
+      });
+  }
+
+  function renderPayouts(info) {
+    var slot = document.getElementById("payouts-slot");
+    if (!slot) return;
+
+    if (!info.enabled) {
+      slot.innerHTML =
+        '<p style="color:var(--muted);font-size:.9rem">' +
+        h(t("payouts.disabledNote")) +
+        "</p>";
+      return;
+    }
+
+    var badge, note, buttons;
+
+    if (!info.connected) {
+      badge = '<span class="badge">' + h(t("payouts.statusNone")) + "</span>";
+      note = t("payouts.notReadyNote", { owner: state.config.ownerName });
+      buttons =
+        '<button class="btn btn-primary" data-payout="onboard">' +
+        h(t("payouts.connect")) +
+        "</button>";
+    } else if (!info.ready) {
+      badge = '<span class="badge warn">' + h(t("payouts.statusPending")) + "</span>";
+      note = t("payouts.notReadyNote", { owner: state.config.ownerName });
+      buttons =
+        '<button class="btn btn-primary" data-payout="onboard">' +
+        h(t("payouts.continue")) +
+        '</button><button class="btn btn-ghost" data-payout="refresh">' +
+        h(t("payouts.refresh")) +
+        "</button>";
+    } else {
+      badge = '<span class="badge ok">' + h(t("payouts.statusActive")) + "</span>";
+      note = t("payouts.readyNote", {
+        percent: Math.round((1 - info.commissionRate) * 100),
+      });
+      buttons =
+        (info.provider === "stripe"
+          ? '<button class="btn btn-ghost" data-payout="dashboard">' +
+            h(t("payouts.manage")) +
+            "</button>"
+          : "") +
+        '<button class="btn btn-ghost" data-payout="refresh">' +
+        h(t("payouts.refresh")) +
+        "</button>";
+    }
+
+    slot.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">' +
+      badge +
+      "</div>" +
+      '<p style="color:var(--muted);font-size:.92rem;margin-bottom:12px">' +
+      h(info.connected ? note : t("payouts.intro") + " " + note) +
+      "</p>" +
+      (info.provider === "demo"
+        ? '<div class="alert alert-info" style="font-size:.86rem">' +
+          h(t("payouts.demoNote")) +
+          "</div>"
+        : "") +
+      '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+      buttons +
+      "</div>";
+
+    slot.querySelectorAll("[data-payout]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var action = btn.getAttribute("data-payout");
+        var original = btn.textContent;
+        btn.disabled = true;
+
+        if (action === "refresh") {
+          loadPayouts(true);
+          return;
+        }
+
+        btn.textContent = t("payouts.opening");
+
+        var call =
+          action === "onboard"
+            ? api("/me/payouts/onboard", { method: "POST" })
+            : api("/me/payouts/dashboard");
+
+        call
+          .then(function (res) {
+            if (res.url && !res.demo) {
+              window.location.href = res.url;
+              return;
+            }
+            // Demo modunda dışarı çıkmadan durumu tazeleriz.
+            loadPayouts(true);
+          })
+          .catch(function (err) {
+            toast(err.message, "long");
+            btn.disabled = false;
+            btn.textContent = original;
+          });
+      });
+    });
+  }
+
   // ── Görünüm: Uygulama sahibi paneli ──────────────────────────────────────
 
   function viewOwner() {
@@ -1675,10 +1830,10 @@
             t("owner.commission", { percent: Math.round(s.commissionRate * 100) }),
             money(totals.commission, s.currency),
           ) +
-          statBox(t("owner.payable"), money(totals.organizer_payable, s.currency)) +
-          statBox(t("owner.refunded"), money(totals.refunded, s.currency)) +
+          statBox(t("owner.autoPaid"), money(totals.organizer_auto, s.currency)) +
+          statBox(t("owner.manualOwed"), money(totals.organizer_manual, s.currency)) +
           '</div><div class="stat-grid" style="margin-top:12px">' +
-          statBox(t("owner.paidCount"), String(totals.paid_count)) +
+          statBox(t("owner.refunded"), money(totals.refunded, s.currency)) +
           statBox(t("owner.pendingCount"), String(totals.pending_count)) +
           statBox(t("owner.users"), String(s.counts.users)) +
           statBox(t("owner.liveEvents"), String(s.counts.events)) +
@@ -1731,6 +1886,7 @@
               "</h3></div>") +
           '</div><div class="card"><h2 class="section-title" style="margin-top:0">' +
           h(t("owner.recent")) +
+          ' · ' + h(t("host.payments", { count: totals.paid_count })) +
           "</h2>" +
           (payments.length
             ? '<div class="table-wrap"><table class="data"><thead><tr><th>#</th><th>' +
@@ -1743,6 +1899,8 @@
               h(t("col.status")) +
               "</th><th>" +
               h(t("owner.colMethod")) +
+              "</th><th>" +
+              h(t("owner.colPayout")) +
               "</th></tr></thead><tbody>" +
               payments
                 .map(function (p) {
@@ -1772,7 +1930,11 @@
                     '</span></td><td style="color:var(--muted)">' +
                     h(p.provider) +
                     (p.cardLast4 ? " ••" + h(p.cardLast4) : "") +
-                    "</td></tr>"
+                    '</td><td><span class="badge ' +
+                    (p.payoutMode === "connect" ? "ok" : "") +
+                    '">' +
+                    h(t("payout." + p.payoutMode)) +
+                    "</span></td></tr>"
                   );
                 })
                 .join("") +
@@ -1938,7 +2100,7 @@
     if ((m = path.match(/^\/ticket\/(\d+)$/))) return viewTicket(m[1]);
     if (path === "/my-events") return viewMyEvents(route.query);
     if (path === "/create") return viewCreate();
-    if (path === "/profile") return viewProfile();
+    if (path === "/profile") return viewProfile(route.query);
     if (path === "/dashboard") return viewOwner();
 
     renderShell("");

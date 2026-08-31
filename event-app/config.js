@@ -59,6 +59,18 @@ const config = {
     provider: stripeSecret ? "stripe" : "demo",
     stripeSecretKey: stripeSecret,
     stripeApiBase: "https://api.stripe.com/v1",
+
+    // Webhook imzasını doğrulamak için. Boşsa webhook ucu kapalıdır ve
+    // ödeme yalnızca kullanıcı geri döndüğünde onaylanır.
+    webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET || "").trim(),
+  },
+
+  // Stripe Connect: organizatör payı ödeme anında otomatik olarak onun
+  // hesabına geçer. Kapatılırsa para sahipte toplanır ve elle aktarılır.
+  connect: {
+    enabled: String(process.env.STRIPE_CONNECT || "true").toLowerCase() !== "false",
+    // Organizatör hesaplarının açılacağı ülke (ISO 3166-1 alfa-2).
+    country: (process.env.CONNECT_COUNTRY || "CZ").toUpperCase(),
   },
 };
 

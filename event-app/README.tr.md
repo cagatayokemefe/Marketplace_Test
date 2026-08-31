@@ -4,8 +4,8 @@
 
 Meetup benzeri bir etkinlik uygulaması. Biri voleybol maçı açar, katılmak isteyen
 kişi uygulamadan yerini ayırtır, katılım ücretini uygulama üzerinden öder ve
-girişte gösterebileceği bir bilet alır. **Tüm ödemeler uygulama sahibinin
-hesabında toplanır**; organizatöre ödenecek pay ayrı bir kalem olarak raporlanır.
+girişte gösterebileceği bir bilet alır. **Para ödeme anında otomatik bölünür**:
+organizatörün payı doğrudan kendi hesabına, komisyon uygulama sahibine geçer.
 
 Tek bir kod tabanı üç yerde çalışır:
 
@@ -38,7 +38,7 @@ halı saha, yoga, doğa yürüyüşü etkinlikleri) otomatik yüklenir.
 | --- | --- | --- | --- |
 | Katılımcı | `irfan@example.com` | `irfan1234` | Etkinliklere katılır, öder, bilet alır |
 | Organizatör | `zeynep@example.com` | `zeynep1234` | Kendi etkinliklerinin katılımcı listesi + giriş kontrolü |
-| **Uygulama sahibi** | `owner@meetapp.app` | `owner1234` | Gelir paneli: tüm tahsilat, komisyon, organizatörlere borç |
+| **Uygulama sahibi** | `owner@meetapp.app` | `owner1234` | Gelir paneli: tahsilat, komisyon, otomatik giden pay ve kalan borç |
 
 ### Dil
 
@@ -66,7 +66,7 @@ npm run icons    # uygulama ikonlarını yeniden üretir
 3. **Yer ayırma** — Butona basınca sunucu kontenjanı kontrol eder, `pending`
    durumunda bir kayıt ve bir ödeme kaydı açar.
 4. **Ödeme** — Kart ekranında tutar ve etkinlik özeti görünür. Ödeme onaylanınca
-   kayıt `confirmed` olur ve tutar uygulama sahibinin hesabına yazılır.
+   kayıt `confirmed` olur; organizatörün payı kendi hesabına, komisyon sahibe geçer.
 5. **Bilet** — İrfan'a `ABCD-1234` biçiminde bir giriş kodu verilir. Salonda
    organizatör bu kodu **Katılımcılar → Giriş kontrolü** ekranına yazıp doğrular;
    aynı kod ikinci kez kabul edilmez.
@@ -77,19 +77,29 @@ npm run icons    # uygulama ikonlarını yeniden üretir
 
 ## Para nasıl akıyor?
 
+İki yol var; hangisinin geçerli olduğu organizatörün ödeme hesabını bağlayıp
+bağlamadığına göre değişir.
+
+**Organizatör bağlıysa (varsayılan, otomatik):**
+
 ```
-İrfan'ın kartı ──► Uygulama sahibinin hesabı ──► (etkinlik sonrası) organizatör
-                   ▲                              ▲
-                   │                              │
-            tahsilatın tamamı              komisyon düşülmüş pay
+İrfan'ın kartı ──► Stripe ödeme anında böler
+                     ├──► organizatörün kendi hesabı   (%90)
+                     └──► uygulama sahibinin hesabı    (%10 komisyon)
 ```
 
-- Katılımcının ödediği tutarın **tamamı** uygulama sahibine geçer.
-- Her ödeme kaydında `commission_minor` (sahibin payı) ve
-  `organizer_share_minor` (organizatöre borç) ayrı ayrı tutulur.
+**Organizatör bağlı değilse (yedek yol):**
+
+```
+İrfan'ın kartı ──► Uygulama sahibinin hesabı ──► (sonra) elle organizatöre
+```
+
 - Komisyon oranı `COMMISSION_RATE` ile ayarlanır (varsayılan `0.10` = %10).
-- Uygulama sahibi `#/dashboard` ekranında toplam tahsilatı, komisyonu,
-  organizatörlere olan borcu, iadeleri ve ödeme dökümünü görür.
+- Her ödeme kaydında `commission_minor` (sahibin payı),
+  `organizer_share_minor` (organizatörün payı) ve `payout_mode`
+  (`connect` = gitti, `platform` = hâlâ borç) tutulur.
+- Uygulama sahibi `#/dashboard` ekranında tahsilatı, komisyonu, otomatik giden
+  payı, elle ödenecek borcu, iadeleri ve ödeme dökümünü görür.
 
 Tutarlar veritabanında **kuruş** (tam sayı) olarak saklanır — kayan nokta
 yuvarlama hatası olmaz. ₺150 → `15000`.
@@ -107,6 +117,46 @@ değişikliği gerekmez. Stripe SDK'sı kurulmaz; REST API'ye doğrudan istek at
 
 > Kart bilgileri hiçbir modda veritabanına yazılmaz; yalnızca son 4 hane
 > (demo modunda) makbuz için saklanır.
+
+### Organizatörlere otomatik ödeme (Stripe Connect)
+
+Organizatör **Profil → Ödeme hesabım** bölümünden Stripe hesabını bağlar.
+Kimlik doğrulama, vergi formu ve banka bilgisi adımlarının tamamını Stripe kendi
+ekranlarında yürütür; bu veriler uygulamaya hiç uğramaz. Hesap aktif olduğunda o
+organizatörün etkinliklerine yapılan her ödeme anında bölünür: payı kendi
+hesabına, komisyon sahibin hesabına geçer.
+
+| Uç | Ne yapar |
+| --- | --- |
+| `POST /api/me/payouts/onboard` | Hesabı açar (yoksa) ve Stripe kurulum bağlantısını verir |
+| `POST /api/me/payouts/refresh` | Hesabın durumunu Stripe'tan yeniden okur |
+| `GET` `/api/me/payouts` | Güncel durum (bağlı mı, hazır mı) |
+| `GET` `/api/me/payouts/dashboard` | Organizatörün kendi Stripe paneline tek kullanımlık bağlantı |
+
+Teknik olarak bu bir *destination charge*: Checkout oturumuna
+`transfer_data[destination]` ve `application_fee_amount` eklenir, Stripe parayı
+tek adımda taşır ve komisyonu platforma geri alır. İadelerde `reverse_transfer`
+ve `refund_application_fee` kullanılır; böylece iptal, parayı iki taraftan da
+geri çeker, sahibin cebinden çıkmaz.
+
+Hesabını bağlamamış organizatörler de çalışmaya devam eder: etkinlikleri yukarıdaki
+yedek yola düşer ve borç, sahibin panelinde görünür. Otomatik ödemeyi tamamen
+kapatmak için `STRIPE_CONNECT=false`.
+
+> Connect'in bağlı hesap ve transfer başına ek maliyeti vardır; güncel rakamlar
+> [stripe.com/connect/pricing](https://stripe.com/connect/pricing) adresinde.
+
+### Ödemeyi güvenilir biçimde onaylamak
+
+`POST /api/stripe/webhook` ucu `checkout.session.completed` olayını dinler. Bu
+olmadan ödeme yalnızca kullanıcının tarayıcısı Stripe'tan geri döndüğünde
+onaylanır; ödeyip sekmeyi kapatan biri parayı verir ama bilet alamaz.
+`STRIPE_WEBHOOK_SECRET` tanımlayıp Stripe'ta bu adrese bir webhook ekle. İmza
+ham gövde üzerinden doğrulanır, 5 dakikadan eski tekrarlar reddedilir ve onay
+idempotenttir; webhook ile tarayıcı dönüşü aynı anda gelse bile kayıt bozulmaz.
+
+Kullanıcı Stripe'tayken etkinlik dolarsa ödeme otomatik iade edilir; parası
+alınıp yersiz kalmaz.
 
 ---
 
@@ -282,6 +332,8 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 | `POST` | `/api/registrations/:id/cancel` | İptal + iade |
 | `GET` | `/api/events/:id/attendees` | Katılımcı listesi (organizatör) |
 | `POST` | `/api/events/:id/checkin` | Bilet kodunu doğrula (organizatör) |
+| `POST` | `/api/stripe/webhook` | Stripe ödeme onayları (imza doğrulanır) |
+| `GET` `POST` | `/api/me/payouts` · `/onboard` · `/refresh` · `/dashboard` | Organizatörün ödeme hesabı (Connect) |
 | `GET` | `/api/my/registrations` · `/my/events` · `/my/payments` | Kullanıcının kendi verisi |
 | `GET` | `/api/owner/summary` · `/owner/payments` | Gelir paneli (yalnız uygulama sahibi) |
 
@@ -304,8 +356,10 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 npm run smoke
 ```
 
-41 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
+60 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
 reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
 etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
 yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı
-(`X-Lang`, `?lang=`, varsayılana düşme) ve çevrilmiş hata mesajları.
+(`X-Lang`, `?lang=`, varsayılana düşme), çevrilmiş hata mesajları, Connect
+kurulumu ve otomatik bölüşüm, webhook imza reddi (yanlış imza ve zamanı geçmiş
+tekrar) ile idempotent onay, ve ödemenin iade edilmesi gereken kontenjan yarışı.

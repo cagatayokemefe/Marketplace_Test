@@ -469,10 +469,22 @@ app.get("/api/events", (req, res) => {
   const city = String(req.query.city || "").trim();
   const scope = String(req.query.scope || "upcoming");
 
+  // Tarih aralığı istemciden kesin zaman damgası olarak gelir. Sebebi: starts_at
+  // UTC saklanıyor ama "5 Eylül'deki etkinlikler" kullanıcının yerel gününü
+  // kastediyor. Günün sınırlarını, saat dilimini bilen taraf (tarayıcı) hesaplar.
+  const from = Date.parse(String(req.query.from || ""));
+  const to = Date.parse(String(req.query.to || ""));
+  const hasRange = Number.isFinite(from) && Number.isFinite(to) && to > from;
+
   let sql = "SELECT * FROM events WHERE status = 'published'";
   const params = [];
 
-  if (scope !== "all") {
+  if (hasRange) {
+    // Belirli bir tarih istendiğinde "yaklaşanlar" kısıtı uygulanmaz; kullanıcı
+    // geçmiş bir güne de bakabilmeli.
+    sql += " AND datetime(starts_at) >= datetime(?) AND datetime(starts_at) < datetime(?)";
+    params.push(new Date(from).toISOString(), new Date(to).toISOString());
+  } else if (scope !== "all") {
     sql += " AND datetime(starts_at) >= datetime('now', '-2 hours')";
   }
   if (category && category !== "Tümü") {

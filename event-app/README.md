@@ -60,7 +60,9 @@ npm run icons    # regenerate the app icons
 ## Walkthrough: İrfan joins a volleyball game
 
 1. **Discover** — İrfan opens the app and searches for "volleyball", or picks
-   the Sports/İstanbul filters. Each card shows the date, venue, how full it is
+   the Sports/İstanbul filters. If he only has next Saturday free he taps **This
+   weekend**, or opens the date picker and types a day; the list narrows to the
+   events scheduled for it. Each card shows the date, venue, how full it is
    (1/12) and the price (₺150).
 2. **Detail** — He opens the event: description, address, host and who is going.
    A bar pinned to the bottom shows "₺150 · per person" and **Join and pay**.
@@ -73,6 +75,29 @@ npm run icons    # regenerate the app icons
    types it into **Attendees → Check-in**; the same code is refused the second time.
 6. **Cancelling** — More than 6 hours before the event İrfan can cancel and is
    refunded. Inside the last 6 hours refunds are closed.
+
+---
+
+## Finding events by date
+
+Above the discover list there is a row of chips — **Any date · Today · Tomorrow
+· This weekend** — and a date picker for any other day. Picking one narrows the
+list to the events scheduled for that day, and it combines with the search box
+and the category/city filters.
+
+The interesting part is the time zone. `starts_at` is stored in UTC, but "the
+events on 5 September" means the user's *local* day, and only the browser knows
+which time zone that is. So the client computes the day's boundaries and sends
+them as two explicit instants:
+
+```
+GET /api/events?from=2026-09-05T00:00:00.000Z&to=2026-09-06T00:00:00.000Z
+```
+
+The server just filters on the range it is given, which keeps the rule in one
+place instead of guessing an offset server-side. When a range is present the
+"upcoming only" restriction is lifted, so a past day can be browsed as well;
+values that don't parse are ignored rather than returning an error.
 
 ---
 
@@ -378,7 +403,7 @@ SQLite transaction, so no half-finished state can survive.
 | `POST` | `/api/auth/forgot` · `/api/auth/reset` | Password reset by email |
 | `POST` | `/api/me/delete` | Delete or anonymise the signed-in account |
 | `GET` `PATCH` | `/api/me` | Profile |
-| `GET` | `/api/events` | Search + category/city filters |
+| `GET` | `/api/events` | Search + category/city/date filters (`from`, `to`) |
 | `GET` | `/api/events/:id` | Detail + attendees |
 | `POST` | `/api/events` | Create an event |
 | `POST` | `/api/events/:id/cancel` | Cancel an event (host) |
@@ -418,7 +443,8 @@ npm run smoke
 uses a translation key that is missing from either dictionary — the mistake that
 otherwise shows a raw `auth.resetInvalid` on screen.
 
-96 checks: signup validation, search, payment required for paid events, declined
+105 checks: signup validation, search, date filtering, payment required for paid
+events, declined
 card, successful payment and ticket generation, duplicate-join guard, instant
 confirmation for free events, host check-in and its reuse guard, authorization
 boundaries, refunds and how they land in the revenue report, language

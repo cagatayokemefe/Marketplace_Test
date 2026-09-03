@@ -60,7 +60,9 @@ npm run icons    # uygulama ikonlarını yeniden üretir
 ## Senaryo: İrfan voleybola katılıyor
 
 1. **Keşfet** — İrfan uygulamayı açar, "voleybol" arar ya da Spor/İstanbul
-   filtrelerini seçer. Kartta tarih, mekân, doluluk (1/12) ve ücret (₺150) görünür.
+   filtrelerini seçer. Yalnızca cumartesi boşsa **Hafta sonu** çipine dokunur ya
+   da takvimden bir gün girer; liste o güne planlanmış etkinliklere iner. Kartta
+   tarih, mekân, doluluk (1/12) ve ücret (₺150) görünür.
 2. **Detay** — Etkinliğe girer; açıklama, adres, organizatör ve katılanlar listelenir.
    Ekranın altında sabit duran çubukta "₺150 · kişi başı" ve **Katıl ve öde** vardır.
 3. **Yer ayırma** — Butona basınca sunucu kontenjanı kontrol eder, `pending`
@@ -72,6 +74,29 @@ npm run icons    # uygulama ikonlarını yeniden üretir
    aynı kod ikinci kez kabul edilmez.
 6. **İptal** — Etkinliğe 6 saatten fazla varsa İrfan iptal edebilir, ücret iade edilir.
    Son 6 saatte iade kapalıdır.
+
+---
+
+## Etkinlikleri tarihe göre bulma
+
+Keşfet listesinin üstünde bir çip satırı var — **Her tarih · Bugün · Yarın ·
+Hafta sonu** — ve başka bir gün için takvim girdisi. Birini seçmek listeyi o güne
+planlanmış etkinliklere indirir; arama kutusu ve kategori/şehir filtreleriyle
+birlikte çalışır.
+
+İşin can alıcı yeri saat dilimi. `starts_at` UTC saklanıyor ama "5 Eylül'deki
+etkinlikler" kullanıcının *yerel* gününü kastediyor ve o günün hangi saat
+diliminde olduğunu yalnızca tarayıcı biliyor. Bu yüzden günün sınırlarını
+istemci hesaplayıp iki kesin zaman damgası olarak gönderiyor:
+
+```
+GET /api/events?from=2026-09-05T00:00:00.000Z&to=2026-09-06T00:00:00.000Z
+```
+
+Sunucu yalnızca kendisine verilen aralığı süzüyor; kuralın sunucu tarafında
+tahmin edilmesi yerine tek bir yerde durması böyle sağlanıyor. Aralık
+verildiğinde "yalnızca yaklaşanlar" kısıtı kalkar, yani geçmiş bir güne de
+bakılabilir; çözümlenemeyen değerler hata döndürmek yerine yok sayılır.
 
 ---
 
@@ -371,7 +396,7 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 | `POST` | `/api/auth/forgot` · `/api/auth/reset` | E-posta ile şifre sıfırlama |
 | `POST` | `/api/me/delete` | Hesabı sil ya da kimliksizleştir |
 | `GET` `PATCH` | `/api/me` | Profil |
-| `GET` | `/api/events` | Arama + kategori/şehir filtresi |
+| `GET` | `/api/events` | Arama + kategori/şehir/tarih filtresi (`from`, `to`) |
 | `GET` | `/api/events/:id` | Detay + katılımcılar |
 | `POST` | `/api/events` | Etkinlik oluştur |
 | `POST` | `/api/events/:id/cancel` | Etkinliği iptal et (organizatör) |
@@ -409,7 +434,8 @@ npm run smoke
 çeviri anahtarı sözlüklerden birinde eksikse test kalır — yoksa ekranda
 çevirinin yerine ham `auth.resetInvalid` görünürdü.
 
-96 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
+105 kontrol: kayıt doğrulaması, arama, tarihe göre süzme, ücretli katılımda
+ödeme zorunluluğu,
 reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
 etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
 yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı

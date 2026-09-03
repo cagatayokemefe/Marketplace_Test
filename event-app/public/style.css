@@ -1242,3 +1242,54 @@ table.data tr:last-child td {
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* ── Tarih süzgeci ─────────────────────────────────────────────────────────── */
+
+.date-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  scrollbar-width: none;
+}
+
+.date-row::-webkit-scrollbar {
+  display: none;
+}
+
+.date-input {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: inherit;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+.date-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.date-input.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* Takvim simgesini koyu temada görünür tut */
+[data-theme="dark"] .date-input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+.date-input.active::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}

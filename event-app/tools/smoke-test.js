@@ -780,7 +780,101 @@ function client(baseUrl, lang) {
       "Kişisel e-posta adresi silindi",
     );
 
-    // ── 21. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 21. Tarihe göre süzme ───────────────────────────────────────────────
+    // İstemcinin yaptığı gibi: yerel günün sınırlarını hesaplayıp aralık gönder.
+    function dayRangeParams(iso) {
+      const d = new Date(iso);
+      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      return (
+        "from=" +
+        encodeURIComponent(start.toISOString()) +
+        "&to=" +
+        encodeURIComponent(end.toISOString())
+      );
+    }
+
+    r = await guest("GET", "/api/events");
+    const allUpcoming = r.data.events;
+    ok(allUpcoming.length > 1, "Süzgeçsiz listede birden çok etkinlik var");
+
+    const sample = allUpcoming[0];
+    r = await guest("GET", "/api/events?" + dayRangeParams(sample.startsAt));
+    ok(
+      r.data.events.length >= 1 && r.data.events.every((e) => {
+        const a = new Date(e.startsAt);
+        const b = new Date(sample.startsAt);
+        return a.toDateString() === b.toDateString();
+      }),
+      "Tarih aralığı yalnızca o günün etkinliklerini döndürüyor",
+      JSON.stringify(r.data.events.map((e) => e.startsAt)),
+    );
+    ok(
+      r.data.events.some((e) => e.id === sample.id),
+      "Aranan etkinlik sonuçta var",
+    );
+    ok(
+      r.data.events.length < allUpcoming.length,
+      "Tarih süzgeci listeyi daraltıyor (" +
+        r.data.events.length +
+        " / " +
+        allUpcoming.length +
+        ")",
+    );
+
+    // Hiç etkinlik olmayan bir gün boş dönmeli
+    const emptyDay = new Date(Date.now() + 300 * 86400000).toISOString();
+    r = await guest("GET", "/api/events?" + dayRangeParams(emptyDay));
+    ok(r.data.events.length === 0, "Etkinliksiz gün boş liste döndürüyor");
+
+    // Geçmiş bir gün: aralık verildiğinde "yaklaşanlar" kısıtı devre dışı kalmalı
+    const pastEvent = db
+      .prepare(
+        "INSERT INTO events (organizer_id, title, starts_at, capacity, price_minor, city) VALUES (?,?,?,?,?,?)",
+      )
+      .run(
+        db.prepare("SELECT id FROM users WHERE email='zeynep@example.com'").get().id,
+        "Geçmiş Etkinlik",
+        new Date(Date.now() - 10 * 86400000).toISOString(),
+        10,
+        0,
+        "İstanbul",
+      );
+    const pastRow = db
+      .prepare("SELECT starts_at FROM events WHERE id = ?")
+      .get(pastEvent.lastInsertRowid);
+
+    r = await guest("GET", "/api/events?" + dayRangeParams(pastRow.starts_at));
+    ok(
+      r.data.events.some((e) => e.title === "Geçmiş Etkinlik"),
+      "Geçmiş bir tarih seçilince o günün etkinlikleri görünüyor",
+    );
+
+    r = await guest("GET", "/api/events");
+    ok(
+      !r.data.events.some((e) => e.title === "Geçmiş Etkinlik"),
+      "Tarih verilmediğinde geçmiş etkinlikler listede yok",
+    );
+
+    // Bozuk aralık yok sayılmalı, hata vermemeli
+    r = await guest("GET", "/api/events?from=abc&to=def");
+    ok(
+      r.status === 200 && r.data.events.length === allUpcoming.length,
+      "Geçersiz tarih aralığı yok sayılıyor",
+    );
+
+    // Tarih süzgeci kategori süzgeciyle birlikte çalışmalı
+    r = await guest(
+      "GET",
+      "/api/events?category=Sports&" + dayRangeParams(sample.startsAt),
+    );
+    ok(
+      r.data.events.every((e) => e.category === "Sports"),
+      "Tarih ve kategori süzgeçleri birlikte uygulanıyor",
+    );
+
+    // ── 22. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

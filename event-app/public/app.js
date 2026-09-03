@@ -28,7 +28,8 @@
     },
     // "*" = filtre yok. Kategori/şehir değerleri veritabanındaki hâlleriyle
     // taşınır, ekranda çevrilir.
-    discover: { q: "", category: "*", city: "*" },
+    // dateFilter: null (tüm tarihler) ya da { key, value, from, to }
+    discover: { q: "", category: "*", city: "*", dateFilter: null },
     filters: { categories: [], cities: [] },
   };
 
@@ -102,6 +103,67 @@
 
   function timeOf(d) {
     return fmtDate(d, { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
+  /** Yerel bir günün başlangıcı ve ertesi günün başlangıcı (UTC damgası olarak). */
+  function localDayRange(date) {
+    var start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    var end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+
+  /** <input type="date"> için yerel YYYY-MM-DD. toISOString kullanılamaz: UTC'ye kayar. */
+  function dateInputValue(date) {
+    return (
+      date.getFullYear() +
+      "-" +
+      String(date.getMonth() + 1).padStart(2, "0") +
+      "-" +
+      String(date.getDate()).padStart(2, "0")
+    );
+  }
+
+  function parseDateInput(value) {
+    var parts = String(value).split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return null;
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  /** Hazır seçenekler için aralık üretir. */
+  function datePreset(key) {
+    var now = new Date();
+
+    if (key === "today") {
+      return Object.assign({ key: key, value: dateInputValue(now) }, localDayRange(now));
+    }
+    if (key === "tomorrow") {
+      var tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return Object.assign(
+        { key: key, value: dateInputValue(tomorrow) },
+        localDayRange(tomorrow),
+      );
+    }
+    if (key === "weekend") {
+      var day = now.getDay(); // 0 pazar … 6 cumartesi
+      var start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      var span = 2;
+      if (day === 0) {
+        span = 1; // Pazar günündeysek hafta sonu bugünle bitiyor
+      } else {
+        start.setDate(start.getDate() + ((6 - day + 7) % 7));
+      }
+      var end = new Date(start);
+      end.setDate(end.getDate() + span);
+      return {
+        key: key,
+        value: null,
+        from: start.toISOString(),
+        to: end.toISOString(),
+      };
+    }
+    return null;
   }
 
   function countdown(iso) {
@@ -410,7 +472,10 @@
       '" value="' +
       h(state.discover.q) +
       '" /></div>' +
+      '<div id="date-slot"></div>' +
       '<div id="chips-slot"></div><div id="list-slot"></div>';
+
+    renderDateFilter();
 
     var input = document.getElementById("q");
     var typingTimer = null;
@@ -437,6 +502,10 @@
     if (state.discover.category !== "*")
       params.set("category", state.discover.category);
     if (state.discover.city !== "*") params.set("city", state.discover.city);
+    if (state.discover.dateFilter) {
+      params.set("from", state.discover.dateFilter.from);
+      params.set("to", state.discover.dateFilter.to);
+    }
 
     api("/events?" + params.toString())
       .then(function (data) {
@@ -447,14 +516,42 @@
         if (!slot) return;
 
         if (!data.events.length) {
+          var onDate = state.discover.dateFilter;
+          var title = onDate
+            ? t("discover.emptyOnDate", {
+                date: onDate.value
+                  ? fmtDate(parseDateInput(onDate.value), {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    })
+                  : t("date." + onDate.key),
+              })
+            : t("discover.emptyTitle");
+
           slot.innerHTML =
             '<div class="empty"><div class="e-ico">🗓️</div><h3>' +
-            h(t("discover.emptyTitle")) +
+            h(title) +
             "</h3><p>" +
-            h(t("discover.emptyBody")) +
-            '</p><p style="margin-top:14px"><a class="btn btn-primary" href="#/create">' +
-            h(t("discover.emptyCta")) +
-            "</a></p></div>";
+            h(onDate ? t("discover.emptyOnDateBody") : t("discover.emptyBody")) +
+            '</p><p style="margin-top:14px">' +
+            (onDate
+              ? '<button class="btn btn-ghost" id="clear-date">' +
+                h(t("date.clear")) +
+                "</button>"
+              : '<a class="btn btn-primary" href="#/create">' +
+                h(t("discover.emptyCta")) +
+                "</a>") +
+            "</p></div>";
+
+          var clearBtn = document.getElementById("clear-date");
+          if (clearBtn) {
+            clearBtn.addEventListener("click", function () {
+              state.discover.dateFilter = null;
+              renderDateFilter();
+              loadDiscoverList();
+            });
+          }
           return;
         }
 
@@ -466,6 +563,67 @@
         if (slot)
           slot.innerHTML = '<div class="alert alert-error">' + h(err.message) + "</div>";
       });
+  }
+
+  /** Hızlı tarih seçenekleri ve serbest tarih girişi. */
+  function renderDateFilter() {
+    var slot = document.getElementById("date-slot");
+    if (!slot) return;
+
+    var active = state.discover.dateFilter;
+    var presets = ["today", "tomorrow", "weekend"];
+
+    slot.innerHTML =
+      '<div class="date-row">' +
+      '<button class="chip ' +
+      (active ? "" : "active") +
+      '" data-date="any">' +
+      h(t("date.any")) +
+      "</button>" +
+      presets
+        .map(function (key) {
+          return (
+            '<button class="chip ' +
+            (active && active.key === key ? "active" : "") +
+            '" data-date="' +
+            key +
+            '">' +
+            h(t("date." + key)) +
+            "</button>"
+          );
+        })
+        .join("") +
+      '<input type="date" id="date-input" class="date-input' +
+      (active && active.key === "custom" ? " active" : "") +
+      '" value="' +
+      (active && active.value ? active.value : "") +
+      '" aria-label="' +
+      h(t("date.pick")) +
+      '" title="' +
+      h(t("date.pick")) +
+      '" />' +
+      "</div>";
+
+    slot.querySelectorAll("[data-date]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var key = btn.getAttribute("data-date");
+        state.discover.dateFilter = key === "any" ? null : datePreset(key);
+        renderDateFilter();
+        loadDiscoverList();
+      });
+    });
+
+    document.getElementById("date-input").addEventListener("change", function () {
+      var picked = parseDateInput(this.value);
+      state.discover.dateFilter = picked
+        ? Object.assign(
+            { key: "custom", value: dateInputValue(picked) },
+            localDayRange(picked),
+          )
+        : null;
+      renderDateFilter();
+      loadDiscoverList();
+    });
   }
 
   function renderChips() {

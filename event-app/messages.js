@@ -37,6 +37,7 @@ const DICT = {
     "event.alreadyJoined": "Bu etkinliğe zaten katılıyorsun.",
     "event.full": "Kontenjan dolu.",
     "event.notOrganizer": "Bu etkinliği sen oluşturmadın.",
+    "event.alreadyCancelled": "Bu etkinlik zaten iptal edilmiş.",
     "event.attendeesOrganizerOnly": "Katılımcı listesi sadece organizatöre açık.",
     "event.checkinOrganizerOnly": "Giriş kontrolü sadece organizatöre açık.",
 
@@ -101,6 +102,7 @@ const DICT = {
     "event.alreadyJoined": "You are already going to this event.",
     "event.full": "This event is sold out.",
     "event.notOrganizer": "You are not the host of this event.",
+    "event.alreadyCancelled": "This event is already cancelled.",
     "event.attendeesOrganizerOnly": "The attendee list is only open to the host.",
     "event.checkinOrganizerOnly": "Check-in is only open to the host.",
 

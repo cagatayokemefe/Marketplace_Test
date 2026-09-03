@@ -531,7 +531,94 @@ function client(baseUrl, lang) {
       "İade edilen kayıt iptal edildi",
     );
 
-    // ── 16. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 16. Etkinlik iptali herkese iade etmeli ─────────────────────────────
+    r = await zeynep("POST", "/api/events", {
+      title: "İptal Edilecek Etkinlik",
+      city: "İstanbul",
+      startsAt: new Date(Date.now() + 6 * 86400000).toISOString(),
+      capacity: 10,
+      priceMinor: 20000,
+    });
+    const doomed = r.data.event;
+
+    // İki kişi katılıp ödesin
+    const payer1 = client(baseUrl);
+    const payer2 = client(baseUrl);
+    await payer1("POST", "/api/auth/register", {
+      name: "Payer One",
+      email: "payer.one@example.com",
+      password: "payer1234",
+    });
+    await payer2("POST", "/api/auth/register", {
+      name: "Payer Two",
+      email: "payer.two@example.com",
+      password: "payer1234",
+    });
+
+    const payCard = {
+      holder: "Payer",
+      cardNumber: "4242424242424242",
+      expiry: "12/29",
+      cvc: "123",
+    };
+    for (const payer of [payer1, payer2]) {
+      const join = await payer("POST", "/api/events/" + doomed.id + "/join");
+      await payer("POST", "/api/payments/" + join.data.paymentId + "/confirm", payCard);
+    }
+
+    r = await payer1("GET", "/api/events/" + doomed.id);
+    ok(r.data.event.attendeeCount === 2, "İki katılımcı da onaylandı");
+
+    const beforeCancel = await owner("GET", "/api/owner/summary");
+
+    r = await zeynep("POST", "/api/events/" + doomed.id + "/cancel");
+    ok(r.status === 200, "Organizatör etkinliği iptal edebiliyor");
+    ok(r.data.refundedCount === 2, "İki ödemenin ikisi de iade edildi", JSON.stringify(r.data));
+    ok(r.data.refundedMinor === 40000, "İade tutarı doğru (" + r.data.refundedMinor + ")");
+    ok(r.data.failedCount === 0, "İadelerin hiçbiri başarısız olmadı");
+
+    r = await payer1("GET", "/api/my/registrations");
+    const doomedReg = r.data.registrations.find((x) => x.eventId === doomed.id);
+    ok(
+      doomedReg && doomedReg.status === "cancelled",
+      "Katılımcının kaydı iptal edildi",
+      JSON.stringify(doomedReg),
+    );
+
+    const afterCancel = await owner("GET", "/api/owner/summary");
+    ok(
+      afterCancel.data.totals.refunded - beforeCancel.data.totals.refunded === 40000,
+      "İadeler gelir raporuna yansıdı",
+    );
+    ok(
+      afterCancel.data.totals.gross === beforeCancel.data.totals.gross - 40000,
+      "İade edilen tutar tahsilattan düştü",
+    );
+
+    r = await zeynep("POST", "/api/events/" + doomed.id + "/cancel");
+    ok(r.status === 409, "Aynı etkinlik iki kez iptal edilemiyor");
+
+    // Ücretsiz etkinlikte de kayıtlar düşmeli
+    r = await zeynep("POST", "/api/events", {
+      title: "Ücretsiz İptal Testi",
+      city: "İstanbul",
+      startsAt: new Date(Date.now() + 7 * 86400000).toISOString(),
+      capacity: 10,
+      priceMinor: 0,
+    });
+    const freeDoomed = r.data.event;
+    await payer1("POST", "/api/events/" + freeDoomed.id + "/join");
+
+    r = await zeynep("POST", "/api/events/" + freeDoomed.id + "/cancel");
+    ok(r.data.refundedCount === 0, "Ücretsiz etkinlikte iade edilecek bir şey yok");
+
+    r = await payer1("GET", "/api/my/registrations");
+    ok(
+      r.data.registrations.find((x) => x.eventId === freeDoomed.id).status === "cancelled",
+      "Ücretsiz etkinlikte de kayıt iptal edildi",
+    );
+
+    // ── 17. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

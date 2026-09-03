@@ -768,14 +768,38 @@
     var cancelEvent = document.getElementById("btn-cancel-event");
     if (cancelEvent) {
       cancelEvent.addEventListener("click", function () {
-        if (!confirm(t("confirm.cancelEvent"))) return;
+        // Kaç kişinin etkileneceğini ve ne kadar iade edileceğini önden söyle.
+        var willRefund = ev.attendeeCount > 0 && ev.priceMinor > 0;
+        var question = willRefund
+          ? t("confirm.cancelEventRefund", {
+              count: ev.attendeeCount,
+              amount: money(ev.attendeeCount * ev.priceMinor, ev.currency),
+            })
+          : t("confirm.cancelEvent");
+
+        if (!confirm(question)) return;
+        cancelEvent.disabled = true;
+
         api("/events/" + ev.id + "/cancel", { method: "POST" })
-          .then(function () {
-            toast(t("toast.eventCancelled"));
+          .then(function (res) {
+            if (res.failedCount) {
+              toast(t("toast.eventCancelledPartial", { count: res.failedCount }), "long");
+            } else if (res.refundedCount) {
+              toast(
+                t("toast.eventCancelledRefunded", {
+                  count: res.refundedCount,
+                  amount: money(res.refundedMinor, res.currency),
+                }),
+                "long",
+              );
+            } else {
+              toast(t("toast.eventCancelled"));
+            }
             render();
           })
           .catch(function (err) {
             toast(err.message, "long");
+            cancelEvent.disabled = false;
           });
       });
     }

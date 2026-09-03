@@ -519,15 +519,67 @@ app.post("/api/events", requireAuth, (req, res) => {
   res.status(201).json({ event: shapeEvent(row, req.user.id) });
 });
 
-app.post("/api/events/:id/cancel", requireAuth, (req, res) => {
-  const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
-  if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
-  if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
-    return res.status(403).json({ error: t(req, "event.notOrganizer") });
-  }
-  db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
-  res.json({ ok: true });
-});
+/**
+ * Etkinliği iptal eder ve ödemiş herkese parasını geri verir.
+ *
+ * Katılımcının kendi iptalinde geçerli olan "son 6 saatte iade yok" kuralı
+ * burada uygulanmaz: etkinliği iptal eden organizatör, kabahat katılımcıda
+ * değil. Bir iade başarısız olursa diğerleri yine de yapılır ve o ödeme
+ * 'paid' kalır; böylece sahibin panelinde görünüp elle çözülebilir.
+ */
+app.post(
+  "/api/events/:id/cancel",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);
+    if (!row) return res.status(404).json({ error: t(req, "event.notFound") });
+    if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
+      return res.status(403).json({ error: t(req, "event.notOrganizer") });
+    }
+    if (row.status === "cancelled") {
+      return res.status(409).json({ error: t(req, "event.alreadyCancelled") });
+    }
+
+    const paidPayments = db
+      .prepare(
+        `SELECT p.* FROM payments p
+         JOIN registrations r ON r.id = p.registration_id
+         WHERE p.event_id = ? AND p.status = 'paid' AND r.status = 'confirmed'`,
+      )
+      .all(row.id);
+
+    let refundedCount = 0;
+    let refundedMinor = 0;
+    const failedIds = [];
+
+    for (const payment of paidPayments) {
+      try {
+        await refundPayment(payment);
+        refundedCount += 1;
+        refundedMinor += payment.amount_minor;
+      } catch (err) {
+        console.error("Etkinlik iptalinde iade başarısız:", payment.id, err);
+        failedIds.push(payment.id);
+      }
+    }
+
+    db.transaction(() => {
+      // Ücretsiz kayıtlar ve iadesi tutmayanlar da katılımcı listesinden düşer.
+      db.prepare(
+        "UPDATE registrations SET status = 'cancelled' WHERE event_id = ? AND status != 'cancelled'",
+      ).run(row.id);
+      db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
+    })();
+
+    res.json({
+      ok: true,
+      refundedCount,
+      refundedMinor,
+      currency: row.currency,
+      failedCount: failedIds.length,
+    });
+  }),
+);
 
 app.get("/api/events/:id/attendees", requireAuth, (req, res) => {
   const row = db.prepare("SELECT * FROM events WHERE id = ?").get(req.params.id);

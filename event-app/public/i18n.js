@@ -282,6 +282,9 @@ window.I18N = (function () {
       "common.genericError": "Bir hata oluştu.",
       "confirm.leave": "Katılımını iptal etmek istediğine emin misin?",
       "confirm.cancelEvent": "Etkinliği iptal etmek üzeresin. Devam edilsin mi?",
+      "confirm.cancelEventRefund": "{count} kişi kayıtlı ve {amount} iade edilecek. Etkinliği iptal etmek üzeresin, devam edilsin mi?",
+      "toast.eventCancelledRefunded": "Etkinlik iptal edildi, {count} kişiye {amount} iade edildi.",
+      "toast.eventCancelledPartial": "Etkinlik iptal edildi ama {count} iade tutmadı — panelden kontrol et.",
 
       "toast.joined": "Kaydın tamam! Görüşmek üzere 🎉",
       "toast.paid": "Ödeme alındı, biletin hazır 🎟️",
@@ -569,6 +572,9 @@ window.I18N = (function () {
       "common.genericError": "Something went wrong.",
       "confirm.leave": "Are you sure you want to cancel your spot?",
       "confirm.cancelEvent": "You are about to cancel this event. Continue?",
+      "confirm.cancelEventRefund": "{count} people are registered and {amount} will be refunded. You are about to cancel this event — continue?",
+      "toast.eventCancelledRefunded": "Event cancelled, {amount} refunded to {count} people.",
+      "toast.eventCancelledPartial": "Event cancelled, but {count} refunds did not go through — check the dashboard.",
 
       "toast.joined": "You're in! See you there 🎉",
       "toast.paid": "Payment received, your ticket is ready 🎟️",

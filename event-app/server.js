@@ -145,6 +145,9 @@ const attendeeCountStmt = db.prepare(
 
 function shapeEvent(row, viewerId) {
   const organizer = db.prepare("SELECT * FROM users WHERE id = ?").get(row.organizer_id);
+  const series = row.series_id
+    ? db.prepare("SELECT * FROM event_series WHERE id = ?").get(row.series_id)
+    : null;
   const attendeeCount = attendeeCountStmt.get(row.id).c;
   const myReg = viewerId
     ? db
@@ -175,6 +178,14 @@ function shapeEvent(row, viewerId) {
     spotsLeft: Math.max(row.capacity - attendeeCount, 0),
     isFull: attendeeCount >= row.capacity,
     isPast: new Date(row.starts_at).getTime() < Date.now(),
+    series: series
+      ? {
+          id: series.id,
+          frequency: series.frequency,
+          index: row.series_index,
+          count: series.occurrences,
+        }
+      : null,
     organizer: publicUser(organizer),
     isOrganizer: viewerId === row.organizer_id,
     myRegistration: myReg
@@ -185,6 +196,26 @@ function shapeEvent(row, viewerId) {
           checkedInAt: myReg.checked_in_at,
         }
       : null,
+  };
+}
+
+const REPEAT_FREQUENCIES = ["weekly", "biweekly", "monthly"];
+const MAX_OCCURRENCES = 26;
+
+/**
+ * Seri içindeki diğer tarihler için kısa gösterim. Tam shapeEvent'i her tekrar
+ * için çalıştırmıyoruz; listede yalnızca tarih ve doluluk gerekiyor.
+ */
+function shapeOccurrence(row) {
+  const attendeeCount = attendeeCountStmt.get(row.id).c;
+  return {
+    id: row.id,
+    startsAt: row.starts_at,
+    seriesIndex: row.series_index,
+    capacity: row.capacity,
+    attendeeCount,
+    spotsLeft: Math.max(row.capacity - attendeeCount, 0),
+    isFull: attendeeCount >= row.capacity,
   };
 }
 
@@ -539,7 +570,20 @@ app.get("/api/events/:id", (req, res) => {
     .map(publicUser)
     .map((u) => ({ id: u.id, name: u.name, initials: u.initials, city: u.city }));
 
-  res.json({ event, attendees });
+  // Seriye aitse, aynı seriden gelecek diğer tarihler.
+  const occurrences = row.series_id
+    ? db
+        .prepare(
+          `SELECT * FROM events
+           WHERE series_id = ? AND id != ? AND status = 'published'
+             AND datetime(starts_at) >= datetime('now', '-2 hours')
+           ORDER BY datetime(starts_at) ASC LIMIT 8`,
+        )
+        .all(row.series_id, row.id)
+        .map(shapeOccurrence)
+    : [];
+
+  res.json({ event, attendees, occurrences });
 });
 
 app.post("/api/events", requireAuth, (req, res) => {
@@ -575,43 +619,175 @@ app.post("/api/events", requireAuth, (req, res) => {
   }
 
   const durationHours = Math.min(Math.max(Number(b.durationHours) || 2, 1), 12);
-  const endsAt = new Date(start.getTime() + durationHours * 3600 * 1000).toISOString();
 
-  const info = db
-    .prepare(
-      `INSERT INTO events
-        (organizer_id, title, description, category, cover, city, venue, address,
-         starts_at, ends_at, capacity, price_minor, currency, level)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    )
-    .run(
-      req.user.id,
-      title,
-      description,
-      category,
-      cover,
-      city,
-      venue,
-      address,
-      start.toISOString(),
-      endsAt,
-      capacity,
-      priceMinor,
-      config.currency,
-      level,
+  /*
+   * Tekrar tarihlerini istemci hesaplar, sunucu yalnızca doğrular. Sebebi tarih
+   * süzgecindekiyle aynı: yerel saat dilimini bilen taraf tarayıcı. "Her salı
+   * 19:00" derken kastedilen duvar saatidir; sunucuda UTC'ye 7×24 saat eklemek
+   * yaz saati geçişinden sonra etkinliği 18:00'a ya da 20:00'a kaydırırdı.
+   */
+  const repeat = b.repeat && typeof b.repeat === "object" ? b.repeat : null;
+  const frequency =
+    repeat && repeat.frequency && repeat.frequency !== "none"
+      ? String(repeat.frequency)
+      : null;
+  const extraDates = [];
+
+  if (frequency) {
+    if (!REPEAT_FREQUENCIES.includes(frequency)) {
+      return res.status(400).json({ error: t(req, "validate.repeatFrequency") });
+    }
+    const rawDates = Array.isArray(repeat.dates) ? repeat.dates : [];
+    if (rawDates.length < 1 || rawDates.length > MAX_OCCURRENCES - 1) {
+      return res
+        .status(400)
+        .json({ error: t(req, "validate.repeatCount", { max: MAX_OCCURRENCES }) });
+    }
+    // Artan sırada ve birbirinden farklı olmalı; ilki zaten startsAt.
+    let previous = start.getTime();
+    for (const value of rawDates) {
+      const date = new Date(String(value));
+      if (Number.isNaN(date.getTime())) {
+        return res.status(400).json({ error: t(req, "validate.repeatDates") });
+      }
+      if (date.getTime() <= previous) {
+        return res.status(400).json({ error: t(req, "validate.repeatOrder") });
+      }
+      previous = date.getTime();
+      extraDates.push(date);
+    }
+  }
+
+  const insertEvent = db.prepare(
+    `INSERT INTO events
+      (organizer_id, title, description, category, cover, city, venue, address,
+       starts_at, ends_at, capacity, price_minor, currency, level,
+       series_id, series_index)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  );
+
+  const created = db.transaction(() => {
+    const seriesId = frequency
+      ? db
+          .prepare(
+            "INSERT INTO event_series (organizer_id, frequency, occurrences) VALUES (?,?,?)",
+          )
+          .run(req.user.id, frequency, extraDates.length + 1).lastInsertRowid
+      : null;
+
+    return [start].concat(extraDates).map((date, i) =>
+      insertEvent.run(
+        req.user.id,
+        title,
+        description,
+        category,
+        cover,
+        city,
+        venue,
+        address,
+        date.toISOString(),
+        new Date(date.getTime() + durationHours * 3600 * 1000).toISOString(),
+        capacity,
+        priceMinor,
+        config.currency,
+        level,
+        seriesId,
+        seriesId ? i + 1 : null,
+      ).lastInsertRowid,
     );
+  })();
 
-  const row = db.prepare("SELECT * FROM events WHERE id = ?").get(info.lastInsertRowid);
-  res.status(201).json({ event: shapeEvent(row, req.user.id) });
+  const row = db.prepare("SELECT * FROM events WHERE id = ?").get(created[0]);
+  res.status(201).json({
+    event: shapeEvent(row, req.user.id),
+    series: frequency ? { frequency, count: created.length, eventIds: created } : null,
+  });
 });
 
 /**
- * Etkinliği iptal eder ve ödemiş herkese parasını geri verir.
+ * Tek bir etkinliği iptal eder, ödemiş herkese parasını geri verir ve haber
+ * gönderir. Seri iptalinde bu tekrar tekrar çağrılır.
  *
  * Katılımcının kendi iptalinde geçerli olan "son 6 saatte iade yok" kuralı
  * burada uygulanmaz: etkinliği iptal eden organizatör, kabahat katılımcıda
  * değil. Bir iade başarısız olursa diğerleri yine de yapılır ve o ödeme
  * 'paid' kalır; böylece sahibin panelinde görünüp elle çözülebilir.
+ */
+async function cancelSingleEvent(row, baseUrlValue) {
+  // Kayıtları iptal etmeden önce kime haber vereceğimizi topla.
+  const notify = db
+    .prepare(
+      `SELECT u.email, u.name, u.lang, r.amount_minor
+       FROM registrations r
+       JOIN users u ON u.id = r.user_id
+       WHERE r.event_id = ? AND r.status = 'confirmed'`,
+    )
+    .all(row.id);
+
+  const paidPayments = db
+    .prepare(
+      `SELECT p.* FROM payments p
+       JOIN registrations r ON r.id = p.registration_id
+       WHERE p.event_id = ? AND p.status = 'paid' AND r.status = 'confirmed'`,
+    )
+    .all(row.id);
+
+  let refundedCount = 0;
+  let refundedMinor = 0;
+  const failedIds = [];
+
+  for (const payment of paidPayments) {
+    try {
+      await refundPayment(payment);
+      refundedCount += 1;
+      refundedMinor += payment.amount_minor;
+    } catch (err) {
+      console.error("Etkinlik iptalinde iade başarısız:", payment.id, err);
+      failedIds.push(payment.id);
+    }
+  }
+
+  db.transaction(() => {
+    // Ücretsiz kayıtlar ve iadesi tutmayanlar da katılımcı listesinden düşer.
+    db.prepare(
+      "UPDATE registrations SET status = 'cancelled' WHERE event_id = ? AND status != 'cancelled'",
+    ).run(row.id);
+    db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
+  })();
+
+  for (const person of notify) {
+    const to = mailRecipient(person);
+    const refunded = person.amount_minor > 0 && failedIds.length === 0;
+    mailer.sendQuietly(
+      "eventCancelled",
+      to,
+      {
+        title: row.title,
+        when: formatWhen(row.starts_at, to.lang),
+        refundLine:
+          person.amount_minor > 0
+            ? refunded
+              ? to.lang === "en"
+                ? `Your payment of ${formatMoney(person.amount_minor, row.currency, "en")} has been refunded.`
+                : `${formatMoney(person.amount_minor, row.currency, "tr")} tutarındaki ödemen iade edildi.`
+              : to.lang === "en"
+                ? "Your refund is being processed — we will be in touch."
+                : "İaden işleme alındı, seninle iletişime geçeceğiz."
+            : "",
+      },
+      baseUrlValue,
+    );
+  }
+
+  return { refundedCount, refundedMinor, failedCount: failedIds.length };
+}
+
+/**
+ * Etkinliği — ya da body'de scope:"series" varsa serinin tamamını — iptal eder.
+ *
+ * Seri iptalinde geçmiş tekrarlar dokunulmadan bırakılır: onlar zaten yapıldı,
+ * iptal edilirlerse katılan insanlara haksız yere para iadesi giderdi. Tıklanan
+ * etkinlik ise tarihi ne olursa olsun her zaman iptal edilir.
  */
 app.post(
   "/api/events/:id/cancel",
@@ -622,81 +798,45 @@ app.post(
     if (row.organizer_id !== req.user.id && req.user.role !== "owner") {
       return res.status(403).json({ error: t(req, "event.notOrganizer") });
     }
-    if (row.status === "cancelled") {
+
+    const wholeSeries = String((req.body || {}).scope || "") === "series" && row.series_id;
+
+    const targets = wholeSeries
+      ? db
+          .prepare(
+            `SELECT * FROM events
+             WHERE series_id = ? AND status = 'published'
+               AND (id = ? OR datetime(starts_at) >= datetime('now'))
+             ORDER BY datetime(starts_at) ASC`,
+          )
+          .all(row.series_id, row.id)
+      : row.status === "cancelled"
+        ? []
+        : [row];
+
+    if (!targets.length) {
       return res.status(409).json({ error: t(req, "event.alreadyCancelled") });
     }
 
-    // Kayıtları iptal etmeden önce kime haber vereceğimizi topla.
-    const notify = db
-      .prepare(
-        `SELECT u.email, u.name, u.lang, r.amount_minor
-         FROM registrations r
-         JOIN users u ON u.id = r.user_id
-         WHERE r.event_id = ? AND r.status = 'confirmed'`,
-      )
-      .all(row.id);
-
-    const paidPayments = db
-      .prepare(
-        `SELECT p.* FROM payments p
-         JOIN registrations r ON r.id = p.registration_id
-         WHERE p.event_id = ? AND p.status = 'paid' AND r.status = 'confirmed'`,
-      )
-      .all(row.id);
-
+    const base = baseUrl(req);
     let refundedCount = 0;
     let refundedMinor = 0;
-    const failedIds = [];
+    let failedCount = 0;
 
-    for (const payment of paidPayments) {
-      try {
-        await refundPayment(payment);
-        refundedCount += 1;
-        refundedMinor += payment.amount_minor;
-      } catch (err) {
-        console.error("Etkinlik iptalinde iade başarısız:", payment.id, err);
-        failedIds.push(payment.id);
-      }
-    }
-
-    db.transaction(() => {
-      // Ücretsiz kayıtlar ve iadesi tutmayanlar da katılımcı listesinden düşer.
-      db.prepare(
-        "UPDATE registrations SET status = 'cancelled' WHERE event_id = ? AND status != 'cancelled'",
-      ).run(row.id);
-      db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
-    })();
-
-    for (const person of notify) {
-      const to = mailRecipient(person);
-      const refunded = person.amount_minor > 0 && failedIds.length === 0;
-      mailer.sendQuietly(
-        "eventCancelled",
-        to,
-        {
-          title: row.title,
-          when: formatWhen(row.starts_at, to.lang),
-          refundLine:
-            person.amount_minor > 0
-              ? refunded
-                ? to.lang === "en"
-                  ? `Your payment of ${formatMoney(person.amount_minor, row.currency, "en")} has been refunded.`
-                  : `${formatMoney(person.amount_minor, row.currency, "tr")} tutarındaki ödemen iade edildi.`
-                : to.lang === "en"
-                  ? "Your refund is being processed — we will be in touch."
-                  : "İaden işleme alındı, seninle iletişime geçeceğiz."
-              : "",
-        },
-        baseUrl(req),
-      );
+    for (const target of targets) {
+      const result = await cancelSingleEvent(target, base);
+      refundedCount += result.refundedCount;
+      refundedMinor += result.refundedMinor;
+      failedCount += result.failedCount;
     }
 
     res.json({
       ok: true,
+      cancelledCount: targets.length,
       refundedCount,
       refundedMinor,
       currency: row.currency,
-      failedCount: failedIds.length,
+      failedCount,
     });
   }),
 );

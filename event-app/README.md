@@ -101,6 +101,39 @@ values that don't parse are ignored rather than returning an error.
 
 ---
 
+## Recurring events
+
+"Volleyball every Tuesday" is one rule plus a set of real events. When you pick
+a repeat interval on the create screen — **every week · every two weeks · every
+month**, up to 26 occurrences — the app writes each date as its own event.
+
+That is deliberate. Registrations, payments, capacity, check-in and refunds all
+key off an event id, and each Tuesday genuinely has its own attendee list and
+its own money. Expanding a rule at read time would have meant rewriting all of
+it. So `event_series` holds the rule, and every occurrence carries `series_id`
+and its position in the series.
+
+What follows from that:
+
+- Each date is joined and paid for separately, and has its own ticket.
+- A host can cancel a single date, or **Cancel the whole series** — which closes
+  every date that has not started yet and refunds those attendees. Dates that
+  already happened are left alone: cancelling them would refund people who
+  actually turned up.
+- The event page lists the other upcoming dates in the series.
+
+The dates themselves are computed in the browser, for the same reason the date
+filter is: *"every Tuesday at 19:00"* means the wall clock, and only the client
+knows the time zone. Adding 7×24 hours to a UTC instant would quietly move a
+19:00 event to 18:00 after the daylight-saving switch. The client steps by
+calendar days instead and sends the resulting instants, which the server
+validates (ascending, all distinct, within the limit) before writing them.
+
+Monthly repeats keep the day of the month and skip the months that don't have
+it — the 31st runs in January and March, not in February.
+
+---
+
 ## How the money flows
 
 There are two routes, and which one applies depends on whether the host has
@@ -405,8 +438,8 @@ SQLite transaction, so no half-finished state can survive.
 | `GET` `PATCH` | `/api/me` | Profile |
 | `GET` | `/api/events` | Search + category/city/date filters (`from`, `to`) |
 | `GET` | `/api/events/:id` | Detail + attendees |
-| `POST` | `/api/events` | Create an event |
-| `POST` | `/api/events/:id/cancel` | Cancel an event (host) |
+| `POST` | `/api/events` | Create an event, optionally as a recurring series |
+| `POST` | `/api/events/:id/cancel` | Cancel an event, or the whole series with `scope: "series"` (host) |
 | `POST` | `/api/events/:id/join` | Reserve a spot → confirmed if free, otherwise start payment |
 | `GET` | `/api/payments/:id` | Payment status |
 | `POST` | `/api/payments/:id/confirm` | Complete a payment (demo card or Stripe verification) |
@@ -441,10 +474,11 @@ npm run smoke
 
 `npm run smoke` first runs `tools/check-i18n.js`, which fails if the interface
 uses a translation key that is missing from either dictionary — the mistake that
-otherwise shows a raw `auth.resetInvalid` on screen.
+otherwise shows a raw `auth.resetInvalid` on screen. It resolves plural keys
+(`_one` / `_other`) on its own, so adding a counted string needs no bookkeeping.
 
-105 checks: signup validation, search, date filtering, payment required for paid
-events, declined
+125 checks: signup validation, search, date filtering, recurring series, payment
+required for paid events, declined
 card, successful payment and ticket generation, duplicate-join guard, instant
 confirmation for free events, host check-in and its reuse guard, authorization
 boundaries, refunds and how they land in the revenue report, language
@@ -454,4 +488,8 @@ signature rejection (wrong signature and replayed timestamp) plus idempotent
 confirmation, the capacity race where a payment has to be refunded, refunding
 every attendee when a host cancels, the emails each of those actions sends,
 password reset (including a replayed and an expired token), reminders firing
-once, and account deletion in both its outright and anonymising forms.
+once, account deletion in both its outright and anonymising forms, and for
+recurring events: the numbering and ordering of occurrences, that each keeps its
+own local start time and its own capacity, that malformed repeat rules are
+rejected, and that cancelling a series closes the future dates while leaving the
+past ones alone.

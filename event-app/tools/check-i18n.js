@@ -37,27 +37,24 @@ for (const status of ["paid", "pending", "refunded", "failed"]) used.add("pay." 
 for (const mode of ["connect", "platform"]) used.add("payout." + mode);
 for (const c of I18N.categories) used.add("category." + c);
 for (const l of I18N.levels) used.add("level." + l);
-for (const base of [
-  "card.spotsLeft",
-  "detail.attendeeCount",
-  "host.payments",
-  "time.inDays",
-  "time.inHours",
-  "time.inMinutes",
-]) {
-  used.add(base + "_one");
-  used.add(base + "_other");
-  used.delete(base);
-}
+for (const key of ["none", "weekly", "biweekly", "monthly"]) used.add("repeat." + key);
 
 const langs = I18N.langs.map((l) => l.code);
 const missing = [];
 
+// Çoğul anahtarlar sözlükte "_one"/"_other" ekiyle durur ama koddan düz hâliyle
+// çağrılır. Elle liste tutmak yerine ikisini de arıyoruz: düz hâli yoksa çoğul
+// çifti varsa anahtar tamamdır.
+function resolves(key, lang) {
+  I18N.set(lang);
+  // Sözlükte yoksa t() anahtarın kendisini döndürür.
+  if (I18N.t(key) !== key) return true;
+  return I18N.t(key + "_one") !== key + "_one" && I18N.t(key + "_other") !== key + "_other";
+}
+
 for (const key of [...used].sort()) {
   for (const lang of langs) {
-    I18N.set(lang);
-    // Sözlükte yoksa t() anahtarın kendisini döndürür.
-    if (I18N.t(key) === key) missing.push(lang + " → " + key);
+    if (!resolves(key, lang)) missing.push(lang + " → " + key);
   }
 }
 

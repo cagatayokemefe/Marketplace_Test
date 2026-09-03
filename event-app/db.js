@@ -118,6 +118,29 @@ addColumn("users", "lang", "TEXT");
 // Hatırlatma postasının iki kez gitmemesi için.
 addColumn("registrations", "reminded_at", "TEXT");
 
+/**
+ * Tekrarlayan etkinlik ("her salı voleybol") bir kural satırı + o kuraldan
+ * üretilmiş gerçek etkinlik satırlarıdır. Tekrarları uçuşta hesaplamak yerine
+ * tek tek yazmamızın sebebi: kayıt, ödeme, kontenjan, giriş kontrolü ve iade —
+ * hepsi event_id'ye bağlı. Her haftanın kendi katılımcı listesi ve kendi parası
+ * var; sanal tekrarlarla bunların tamamını yeniden yazmak gerekirdi.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_series (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizer_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    frequency    TEXT    NOT NULL CHECK(frequency IN ('weekly','biweekly','monthly')),
+    occurrences  INTEGER NOT NULL,
+    created_at   TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+`);
+
+// Etkinliğin hangi seriye ait olduğu ve serideki sırası (1'den başlar).
+addColumn("events", "series_id", "INTEGER");
+addColumn("events", "series_index", "INTEGER");
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_events_series ON events(series_id)`);
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS password_resets (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

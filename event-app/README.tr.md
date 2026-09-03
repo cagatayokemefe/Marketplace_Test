@@ -100,6 +100,39 @@ bakılabilir; çözümlenemeyen değerler hata döndürmek yerine yok sayılır.
 
 ---
 
+## Tekrarlayan etkinlikler
+
+"Her salı voleybol" bir kural ve ondan üretilmiş gerçek etkinliklerdir. Oluşturma
+ekranında bir tekrar aralığı seçtiğinde — **her hafta · iki haftada bir · her
+ay**, en fazla 26 tekrar — uygulama her tarihi ayrı bir etkinlik olarak yazar.
+
+Bu bilinçli bir tercih. Kayıt, ödeme, kontenjan, giriş kontrolü ve iade — hepsi
+etkinlik kimliğine bağlı; her salının kendi katılımcı listesi ve kendi parası
+var. Kuralı okuma anında açmak bunların tamamını yeniden yazmayı gerektirirdi.
+Bu yüzden kural `event_series` tablosunda duruyor, her tekrar de `series_id` ve
+serideki sırasını taşıyor.
+
+Bundan çıkanlar:
+
+- Her tarihe ayrı katılınır, ayrı ödenir ve her birinin kendi bileti olur.
+- Organizatör tek bir tarihi iptal edebilir ya da **tüm seriyi iptal**
+  edebilir; bu, henüz başlamamış bütün tarihleri kapatır ve o katılımcılara
+  iade yapar. Geçmiş tarihlere dokunulmaz: onları iptal etmek, gerçekten
+  gelmiş insanlara haksız yere para iadesi yapmak olurdu.
+- Etkinlik sayfasında serinin diğer yaklaşan tarihleri listelenir.
+
+Tarihleri tarayıcı hesaplar — tarih süzgecindekiyle aynı sebeple: *"her salı
+19:00"* duvar saatini kasteder ve saat dilimini yalnızca istemci bilir. UTC bir
+zaman damgasına 7×24 saat eklemek, yaz saati geçişinden sonra 19:00'daki
+etkinliği sessizce 18:00'a kaydırırdı. İstemci bunun yerine takvim günü
+ekleyerek ilerler ve çıkan zaman damgalarını gönderir; sunucu da yazmadan önce
+doğrular (artan sırada, birbirinden farklı ve sınırın içinde).
+
+Aylık tekrar ayın gününü korur ve o günü olmayan ayları atlar — ayın 31'i ocak
+ve martta çalışır, şubatta çalışmaz.
+
+---
+
 ## Para nasıl akıyor?
 
 İki yol var; hangisinin geçerli olduğu organizatörün ödeme hesabını bağlayıp
@@ -398,8 +431,8 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 | `GET` `PATCH` | `/api/me` | Profil |
 | `GET` | `/api/events` | Arama + kategori/şehir/tarih filtresi (`from`, `to`) |
 | `GET` | `/api/events/:id` | Detay + katılımcılar |
-| `POST` | `/api/events` | Etkinlik oluştur |
-| `POST` | `/api/events/:id/cancel` | Etkinliği iptal et (organizatör) |
+| `POST` | `/api/events` | Etkinlik oluştur (istenirse tekrarlayan seri olarak) |
+| `POST` | `/api/events/:id/cancel` | Etkinliği ya da `scope: "series"` ile tüm seriyi iptal et (organizatör) |
 | `POST` | `/api/events/:id/join` | Yer ayır → ücretsizse onay, ücretliyse ödeme başlat |
 | `GET` | `/api/payments/:id` | Ödeme durumu |
 | `POST` | `/api/payments/:id/confirm` | Ödemeyi tamamla (demo kart ya da Stripe doğrulaması) |
@@ -432,10 +465,12 @@ npm run smoke
 
 `npm run smoke` önce `tools/check-i18n.js` çalıştırır: arayüzde kullanılan bir
 çeviri anahtarı sözlüklerden birinde eksikse test kalır — yoksa ekranda
-çevirinin yerine ham `auth.resetInvalid` görünürdü.
+çevirinin yerine ham `auth.resetInvalid` görünürdü. Çoğul anahtarları
+(`_one` / `_other`) kendisi çözer, yani sayılı bir metin eklerken elle liste
+tutmak gerekmez.
 
-105 kontrol: kayıt doğrulaması, arama, tarihe göre süzme, ücretli katılımda
-ödeme zorunluluğu,
+125 kontrol: kayıt doğrulaması, arama, tarihe göre süzme, tekrarlayan seriler,
+ücretli katılımda ödeme zorunluluğu,
 reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
 etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
 yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı
@@ -444,4 +479,7 @@ kurulumu ve otomatik bölüşüm, webhook imza reddi (yanlış imza ve zamanı g
 tekrar) ile idempotent onay, ödemenin iade edilmesi gereken kontenjan yarışı,
 organizatör iptalinde herkese iade, bu işlemlerin gönderdiği postalar, şifre
 sıfırlama (kullanılmış ve geçersiz jeton dahil), hatırlatmanın bir kez gitmesi
-ve hesap silmenin iki biçimi.
+hesap silmenin iki biçimi ve tekrarlayan etkinlikler: tekrarların numaralanması
+ve sırası, her birinin kendi yerel saatini ve kendi kontenjanını koruması,
+bozuk tekrar kurallarının reddedilmesi, seri iptalinin gelecek tarihleri
+kapatıp geçmiş tarihlere dokunmaması.

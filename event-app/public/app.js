@@ -431,6 +431,9 @@
         ? '<span class="badge ok">' + h(t("card.joined")) + "</span>"
         : "";
 
+    // Tekrarlayan bir serinin parçasıysa kartta küçük bir işaret.
+    var repeating = ev.series ? '<span class="badge">🔁</span>' : "";
+
     return (
       '<article class="event-card" data-href="#/event/' +
       ev.id +
@@ -450,6 +453,7 @@
       '</span></div><div class="event-foot">' +
       pricePill +
       spots +
+      repeating +
       joined +
       "</div></div></article>"
     );
@@ -690,6 +694,7 @@
       .then(function (data) {
         var ev = data.event;
         var attendees = data.attendees;
+        var occurrences = data.occurrences || [];
         document.body.classList.add("has-action-bar");
 
         var joined = ev.myRegistration && ev.myRegistration.status === "confirmed";
@@ -738,6 +743,11 @@
           '</span><span class="badge">' +
           h(I18N.level(ev.level)) +
           "</span>" +
+          (ev.series
+            ? '<span class="badge">🔁 ' +
+              h(t("badge.repeat", { count: ev.series.count })) +
+              "</span>"
+            : "") +
           (ev.status === "cancelled"
             ? '<span class="badge danger">' + h(t("detail.cancelledBadge")) + "</span>"
             : "") +
@@ -776,6 +786,33 @@
           '</h2><div class="attendee-row">' +
           attendeesHtml +
           "</div></div>" +
+          (occurrences.length
+            ? '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+              h(t("detail.otherDates")) +
+              '</h2><p class="desc" style="margin-top:0">' +
+              h(t("detail.otherDatesBody")) +
+              '</p><div class="occurrence-list">' +
+              occurrences
+                .map(function (o) {
+                  return (
+                    '<a class="occurrence" href="#/event/' +
+                    o.id +
+                    '"><span class="o-date">' +
+                    h(dateShort(o.startsAt)) +
+                    '</span><span class="o-spots' +
+                    (o.isFull ? " full" : "") +
+                    '">' +
+                    h(
+                      o.isFull
+                        ? t("detail.occurrenceFull")
+                        : t("detail.occurrenceLeft", { count: o.spotsLeft }),
+                    ) +
+                    "</span></a>"
+                  );
+                })
+                .join("") +
+              "</div></div>"
+            : "") +
           (ev.isOrganizer
             ? '<div class="card"><h2 class="section-title" style="margin-top:0">' +
               h(t("detail.hostTools")) +
@@ -790,6 +827,11 @@
                   h(t("detail.cancelEvent")) +
                   "</button>"
                 : "") +
+              (ev.series && occurrences.length
+                ? '<button class="btn btn-danger" id="btn-cancel-series">' +
+                  h(t("detail.cancelSeries")) +
+                  "</button>"
+                : "") +
               "</div></div>"
             : "");
 
@@ -802,7 +844,7 @@
           actionBarHtml(ev, joined) +
           "</div></div>";
 
-        wireDetailActions(ev);
+        wireDetailActions(ev, occurrences);
       })
       .catch(function (err) {
         document.body.classList.remove("has-action-bar");
@@ -870,7 +912,7 @@
     );
   }
 
-  function wireDetailActions(ev) {
+  function wireDetailActions(ev, occurrences) {
     var joinBtn = document.getElementById("btn-join");
     if (joinBtn) {
       joinBtn.addEventListener("click", function () {
@@ -923,22 +965,35 @@
       });
     }
 
-    var cancelEvent = document.getElementById("btn-cancel-event");
-    if (cancelEvent) {
-      cancelEvent.addEventListener("click", function () {
-        // Kaç kişinin etkileneceğini ve ne kadar iade edileceğini önden söyle.
-        var willRefund = ev.attendeeCount > 0 && ev.priceMinor > 0;
-        var question = willRefund
-          ? t("confirm.cancelEventRefund", {
-              count: ev.attendeeCount,
-              amount: money(ev.attendeeCount * ev.priceMinor, ev.currency),
-            })
-          : t("confirm.cancelEvent");
+    /**
+     * Etkinlik iptali. scope "series" ise serinin kalan tüm tarihleri iptal
+     * edilir; onay metni ve sonuç bildirimi buna göre değişir.
+     */
+    function wireCancel(btn, scope) {
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        var question;
+        if (scope === "series") {
+          // Tıklanan tarih + gelecek tekrarlar.
+          question = t("confirm.cancelSeries", { count: (occurrences || []).length + 1 });
+        } else {
+          // Kaç kişinin etkileneceğini ve ne kadar iade edileceğini önden söyle.
+          question =
+            ev.attendeeCount > 0 && ev.priceMinor > 0
+              ? t("confirm.cancelEventRefund", {
+                  count: ev.attendeeCount,
+                  amount: money(ev.attendeeCount * ev.priceMinor, ev.currency),
+                })
+              : t("confirm.cancelEvent");
+        }
 
         if (!confirm(question)) return;
-        cancelEvent.disabled = true;
+        btn.disabled = true;
 
-        api("/events/" + ev.id + "/cancel", { method: "POST" })
+        api("/events/" + ev.id + "/cancel", {
+          method: "POST",
+          body: scope === "series" ? { scope: "series" } : {},
+        })
           .then(function (res) {
             if (res.failedCount) {
               toast(t("toast.eventCancelledPartial", { count: res.failedCount }), "long");
@@ -950,6 +1005,8 @@
                 }),
                 "long",
               );
+            } else if (res.cancelledCount > 1) {
+              toast(t("toast.seriesCancelled", { count: res.cancelledCount }));
             } else {
               toast(t("toast.eventCancelled"));
             }
@@ -957,10 +1014,13 @@
           })
           .catch(function (err) {
             toast(err.message, "long");
-            cancelEvent.disabled = false;
+            btn.disabled = false;
           });
       });
     }
+
+    wireCancel(document.getElementById("btn-cancel-event"), "single");
+    wireCancel(document.getElementById("btn-cancel-series"), "series");
   }
 
   // ── Görünüm: Ödeme ───────────────────────────────────────────────────────
@@ -1500,6 +1560,50 @@
 
   // ── Görünüm: Etkinlik oluştur ────────────────────────────────────────────
 
+  var REPEAT_OPTIONS = ["none", "weekly", "biweekly", "monthly"];
+
+  /**
+   * Bir başlangıç tarihinden tekrar tarihlerini üretir (ilki hariç, çünkü o
+   * zaten startsAt olarak gidiyor).
+   *
+   * Gün ekleyerek ilerliyoruz, saat eklemeyerek: 7×24 saat eklemek yaz saati
+   * geçişinde "her salı 19:00"u 18:00 ya da 20:00 yapardı. Yerel gün/ay
+   * bileşenleriyle kurulan Date duvar saatini korur.
+   */
+  function repeatDates(start, frequency, count) {
+    var out = [];
+    var hours = start.getHours();
+    var minutes = start.getMinutes();
+
+    if (frequency === "monthly") {
+      var day = start.getDate();
+      var month = 1;
+      // Ayın o günü yoksa (31 Şubat) o ayı atla; 31'i olan sonraki aya geç.
+      while (out.length < count - 1 && month <= 60) {
+        var d = new Date(start.getFullYear(), start.getMonth() + month, day, hours, minutes, 0, 0);
+        month++;
+        if (d.getDate() === day) out.push(d);
+      }
+      return out;
+    }
+
+    var step = frequency === "biweekly" ? 14 : 7;
+    for (var n = 1; n < count; n++) {
+      out.push(
+        new Date(
+          start.getFullYear(),
+          start.getMonth(),
+          start.getDate() + step * n,
+          hours,
+          minutes,
+          0,
+          0,
+        ),
+      );
+    }
+    return out;
+  }
+
   function viewCreate() {
     renderShell("create");
     document.body.classList.remove("has-action-bar");
@@ -1585,6 +1689,16 @@
       '" required /></div><div class="field"><label for="c-duration">' +
       h(t("create.duration")) +
       '</label><input id="c-duration" type="number" min="1" max="12" value="2" /></div></div>' +
+      '<div class="field-row"><div class="field"><label for="c-repeat">' +
+      h(t("create.repeat")) +
+      '</label><select id="c-repeat">' +
+      REPEAT_OPTIONS.map(function (key) {
+        return '<option value="' + key + '">' + h(t("repeat." + key)) + "</option>";
+      }).join("") +
+      '</select></div><div class="field" id="repeat-count-field" hidden><label for="c-repeat-count">' +
+      h(t("create.repeatCount")) +
+      '</label><input id="c-repeat-count" type="number" min="2" max="26" value="8" /></div></div>' +
+      '<div class="hint" id="repeat-preview" hidden></div>' +
       '<div class="field-row"><div class="field"><label for="c-capacity">' +
       h(t("create.capacity")) +
       '</label><input id="c-capacity" type="number" min="1" max="1000" value="12" required /></div>' +
@@ -1610,6 +1724,48 @@
       });
     });
 
+    var repeatSelect = document.getElementById("c-repeat");
+    var repeatCountInput = document.getElementById("c-repeat-count");
+    var repeatCountField = document.getElementById("repeat-count-field");
+    var repeatPreview = document.getElementById("repeat-preview");
+
+    /** Seçilen kurala göre kaç etkinlik oluşacağını ve son tarihi gösterir. */
+    function refreshRepeatPreview() {
+      var plan = plannedRepeat();
+      repeatCountField.hidden = !plan;
+      if (!plan) {
+        repeatPreview.hidden = true;
+        return;
+      }
+      var all = [plan.start].concat(plan.dates);
+      repeatPreview.hidden = false;
+      repeatPreview.textContent =
+        t("create.repeatPreview", {
+          count: all.length,
+          first: dateShort(all[0]),
+          last: dateShort(all[all.length - 1]),
+        }) +
+        " · " +
+        t("create.repeatHint");
+    }
+
+    /** Form alanlarından tekrar planını çıkarır; tekrar kapalıysa null. */
+    function plannedRepeat() {
+      var frequency = repeatSelect.value;
+      if (frequency === "none") return null;
+      var startLocal = document.getElementById("c-start").value;
+      if (!startLocal) return null;
+      var start = new Date(startLocal);
+      if (isNaN(start.getTime())) return null;
+      var count = Math.min(Math.max(Number(repeatCountInput.value) || 2, 2), 26);
+      return { frequency: frequency, start: start, dates: repeatDates(start, frequency, count) };
+    }
+
+    repeatSelect.addEventListener("change", refreshRepeatPreview);
+    repeatCountInput.addEventListener("input", refreshRepeatPreview);
+    document.getElementById("c-start").addEventListener("change", refreshRepeatPreview);
+    refreshRepeatPreview();
+
     document.getElementById("create-form").addEventListener("submit", function (e) {
       e.preventDefault();
       var btn = document.getElementById("create-btn");
@@ -1619,6 +1775,7 @@
       btn.textContent = t("create.submitting");
 
       var startLocal = document.getElementById("c-start").value;
+      var plan = plannedRepeat();
 
       api("/events", {
         method: "POST",
@@ -1637,10 +1794,23 @@
           priceMinor: Math.round(
             Number(document.getElementById("c-price").value || 0) * 100,
           ),
+          // Tarihleri istemci hesaplar: yerel saat dilimini yalnızca burası bilir.
+          repeat: plan
+            ? {
+                frequency: plan.frequency,
+                dates: plan.dates.map(function (d) {
+                  return d.toISOString();
+                }),
+              }
+            : null,
         },
       })
         .then(function (res) {
-          toast(t("toast.eventPublished"));
+          toast(
+            res.series
+              ? t("toast.seriesPublished", { count: res.series.count })
+              : t("toast.eventPublished"),
+          );
           go("#/event/" + res.event.id);
         })
         .catch(function (err) {

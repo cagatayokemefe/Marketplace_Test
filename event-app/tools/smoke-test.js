@@ -874,7 +874,158 @@ function client(baseUrl, lang) {
       "Tarih ve kategori süzgeçleri birlikte uygulanıyor",
     );
 
-    // ── 22. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 22. Tekrarlayan etkinlik ────────────────────────────────────────────
+    // İstemcinin yaptığı gibi: tarihleri yerel bileşenlerle üretip gönder.
+    function weeklyDates(start, count) {
+      const out = [];
+      for (let n = 1; n < count; n++) {
+        out.push(
+          new Date(
+            start.getFullYear(),
+            start.getMonth(),
+            start.getDate() + 7 * n,
+            start.getHours(),
+            start.getMinutes(),
+            0,
+            0,
+          ).toISOString(),
+        );
+      }
+      return out;
+    }
+
+    const seriesStart = new Date(Date.now() + 5 * 86400000);
+    seriesStart.setHours(19, 0, 0, 0);
+
+    r = await zeynep("POST", "/api/events", {
+      title: "Salı Voleybol Serisi",
+      description: "Her hafta aynı saatte.",
+      category: "Sports",
+      city: "İstanbul",
+      venue: "Spor Salonu",
+      startsAt: seriesStart.toISOString(),
+      durationHours: 2,
+      capacity: 12,
+      priceMinor: 0,
+      repeat: { frequency: "weekly", dates: weeklyDates(seriesStart, 4) },
+    });
+    ok(r.status === 201, "Tekrarlayan etkinlik oluşturuluyor", JSON.stringify(r.data));
+    ok(r.data.series && r.data.series.count === 4, "Seri 4 etkinlik bildiriyor");
+    ok(
+      r.data.event.series && r.data.event.series.frequency === "weekly",
+      "İlk etkinlik seriye bağlı",
+    );
+
+    const seriesEventIds = r.data.series.eventIds;
+    const seriesRows = seriesEventIds.map((id) =>
+      db.prepare("SELECT starts_at, series_index FROM events WHERE id = ?").get(id),
+    );
+    ok(seriesRows.length === 4, "Veritabanında 4 tekrar var");
+    ok(
+      seriesRows.every((row, i) => row.series_index === i + 1),
+      "Tekrarlar 1'den başlayarak sıralı numaralandı",
+    );
+    ok(
+      seriesRows.every(
+        (row, i) =>
+          i === 0 ||
+          new Date(row.starts_at).getTime() >
+            new Date(seriesRows[i - 1].starts_at).getTime(),
+      ),
+      "Tekrar tarihleri artan sırada",
+    );
+    ok(
+      // Yerel bileşenlerle üretildiği için duvar saati her tekrarda aynı kalmalı.
+      seriesRows.every((row) => new Date(row.starts_at).getHours() === 19),
+      "Tekrarlar yerel saati koruyor (19:00)",
+    );
+
+    // Detayda serinin diğer tarihleri dönüyor mu
+    r = await guest("GET", "/api/events/" + seriesEventIds[0]);
+    ok(r.data.occurrences.length === 3, "Detay diğer 3 tarihi listeliyor");
+    ok(
+      !r.data.occurrences.some((o) => o.id === seriesEventIds[0]),
+      "Diğer tarihler listesinde etkinliğin kendisi yok",
+    );
+
+    // Her tekrar kendi kontenjanına sahip ayrı bir etkinlik
+    r = await irfan("POST", "/api/events/" + seriesEventIds[1] + "/join");
+    ok(r.data.status === "confirmed", "İkinci tarihe ayrı ayrı katılınabiliyor");
+    r = await guest("GET", "/api/events/" + seriesEventIds[0]);
+    ok(
+      r.data.event.attendeeCount === 0,
+      "Bir tarihe katılmak diğer tarihi etkilemiyor",
+    );
+
+    // Bozuk tekrar girdileri
+    r = await zeynep("POST", "/api/events", {
+      title: "Geçersiz Sıra",
+      city: "İstanbul",
+      startsAt: seriesStart.toISOString(),
+      capacity: 5,
+      priceMinor: 0,
+      // Başlangıçtan önceki bir tarih: sıra bozuk.
+      repeat: {
+        frequency: "weekly",
+        dates: [new Date(seriesStart.getTime() - 86400000).toISOString()],
+      },
+    });
+    ok(r.status === 400, "Sırası bozuk tekrar tarihi reddediliyor");
+
+    r = await zeynep("POST", "/api/events", {
+      title: "Geçersiz Aralık",
+      city: "İstanbul",
+      startsAt: seriesStart.toISOString(),
+      capacity: 5,
+      priceMinor: 0,
+      repeat: { frequency: "daily", dates: weeklyDates(seriesStart, 2) },
+    });
+    ok(r.status === 400, "Desteklenmeyen tekrar aralığı reddediliyor");
+
+    r = await zeynep("POST", "/api/events", {
+      title: "Çok Fazla Tekrar",
+      city: "İstanbul",
+      startsAt: seriesStart.toISOString(),
+      capacity: 5,
+      priceMinor: 0,
+      repeat: { frequency: "weekly", dates: weeklyDates(seriesStart, 40) },
+    });
+    ok(r.status === 400, "Sınırın üstündeki tekrar sayısı reddediliyor");
+
+    // Geçmiş bir tekrar: seri iptalinde dokunulmamalı
+    db.prepare("UPDATE events SET starts_at = ? WHERE id = ?").run(
+      new Date(Date.now() - 3 * 86400000).toISOString(),
+      seriesEventIds[0],
+    );
+
+    // Tek tarih iptali seriyi etkilemez
+    r = await zeynep("POST", "/api/events/" + seriesEventIds[3] + "/cancel");
+    ok(r.data.cancelledCount === 1, "Tek tarih iptali yalnızca o tarihi kapatıyor");
+    ok(
+      db.prepare("SELECT status FROM events WHERE id = ?").get(seriesEventIds[1])
+        .status === "published",
+      "Diğer tarihler açık kaldı",
+    );
+
+    // Seri iptali: kalan gelecek tarihler kapanır, geçmiş tarih dokunulmaz
+    r = await zeynep("POST", "/api/events/" + seriesEventIds[1] + "/cancel", {
+      scope: "series",
+    });
+    ok(r.status === 200, "Seri iptali kabul ediliyor", JSON.stringify(r.data));
+    ok(r.data.cancelledCount === 2, "Kalan iki gelecek tarih iptal edildi");
+    ok(
+      db.prepare("SELECT status FROM events WHERE id = ?").get(seriesEventIds[0])
+        .status === "published",
+      "Geçmiş tekrar seri iptalinde dokunulmadan kaldı",
+    );
+    ok(
+      db
+        .prepare("SELECT status FROM registrations WHERE event_id = ?")
+        .get(seriesEventIds[1]).status === "cancelled",
+      "Seri iptalinde katılımcı kayıtları da kapandı",
+    );
+
+    // ── 23. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

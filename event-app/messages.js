@@ -55,6 +55,10 @@ const DICT = {
     "validate.futureDate": "Etkinlik tarihi gelecekte olmalı.",
     "validate.capacity": "Kontenjan 1–1000 arasında olmalı.",
     "validate.price": "Geçersiz ücret.",
+    "validate.repeatFrequency": "Geçersiz tekrar aralığı.",
+    "validate.repeatCount": "Tekrar sayısı 2–{max} arasında olmalı.",
+    "validate.repeatDates": "Tekrar tarihlerinden biri geçersiz.",
+    "validate.repeatOrder": "Tekrar tarihleri artan sırada ve birbirinden farklı olmalı.",
 
     "payment.startFailed": "Ödeme başlatılamadı: {reason}",
     "payment.notFound": "Ödeme bulunamadı.",
@@ -124,6 +128,10 @@ const DICT = {
     "validate.futureDate": "The event date must be in the future.",
     "validate.capacity": "Capacity must be between 1 and 1000.",
     "validate.price": "Invalid price.",
+    "validate.repeatFrequency": "Invalid repeat interval.",
+    "validate.repeatCount": "The number of repeats must be between 2 and {max}.",
+    "validate.repeatDates": "One of the repeat dates is invalid.",
+    "validate.repeatOrder": "Repeat dates must be in ascending order and all different.",
 
     "payment.startFailed": "Could not start the payment: {reason}",
     "payment.notFound": "Payment not found.",

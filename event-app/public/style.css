@@ -1293,3 +1293,46 @@ table.data tr:last-child td {
 .date-input.active::-webkit-calendar-picker-indicator {
   filter: invert(1);
 }
+
+/* ── Serideki diğer tarihler ─────────────────────────────────────────────── */
+
+.occurrence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.occurrence {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color .15s, transform .15s;
+}
+
+.occurrence:hover {
+  border-color: var(--accent);
+  transform: translateX(2px);
+}
+
+.occurrence .o-date {
+  font-weight: 600;
+  font-size: .92rem;
+}
+
+.occurrence .o-spots {
+  color: var(--muted);
+  font-size: .84rem;
+  white-space: nowrap;
+}
+
+.occurrence .o-spots.full {
+  color: var(--red);
+}

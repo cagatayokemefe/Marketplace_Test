@@ -1,0 +1,32 @@
+{
+  "name": "meetapp",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MeetApp - discover events, join, and pay in the app (web + PWA + Capacitor)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "seed": "node seed.js",
+    "reset": "node seed.js --reset",
+    "icons": "node tools/make-icons.js",
+    "smoke": "node tools/check-i18n.js && node tools/smoke-test.js",
+    "check:i18n": "node tools/check-i18n.js",
+    "cap:sync": "npx cap sync",
+    "cap:ios": "npx cap open ios",
+    "cap:android": "npx cap open android"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.6.2",
+    "connect-sqlite3": "^0.9.16",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.2.1",
+    "express-session": "^1.19.0",
+    "helmet": "^8.1.0",
+    "nodemailer": "^9.1.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

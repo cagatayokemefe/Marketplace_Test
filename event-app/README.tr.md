@@ -160,6 +160,53 @@ alınıp yersiz kalmaz.
 
 ---
 
+## E-posta, şifre sıfırlama ve hesap silme
+
+### E-posta
+
+İşlem postalarını `mailer.js` gönderir. `SMTP_URL` tanımlıysa SMTP üzerinden
+yollar; tanımlı değilse postayı konsola yazar — böylece posta sunucusu ya da ağ
+olmadan geliştirebilir ve test çalıştırabilirsin. Gönderim isteği hiçbir zaman
+düşürmez: bir posta gidemezse hata loglanır, kullanıcının işlemi yine tamamlanır.
+Bilet almak, postanın gitmesine bağlı olmamalı.
+
+| Ne zaman | Posta |
+| --- | --- |
+| Kayıt onaylandığında (ücretli ya da ücretsiz) | Giriş kodlu bilet |
+| Organizatör etkinliği iptal ettiğinde | İptal bildirimi ve iade tutarı |
+| Katılımcı yerini bıraktığında | Onay ve iade tutarı |
+| Başlangıçtan `REMINDER_HOURS` saat önce (varsayılan 24) | Giriş kodlu hatırlatma |
+| Şifre sıfırlama istendiğinde | Tek kullanımlık sıfırlama bağlantısı |
+
+Postalar alıcının kendi dilinde gider: kullanıcının en son kullandığı dil
+hesabında saklanır, şablonlar iki dilde de var. Hatırlatma taraması sunucu
+içinde saatte bir çalışır ve her kayda damga basar, aynı hatırlatma iki kez
+gitmez.
+
+### Şifre sıfırlama
+
+`POST /api/auth/forgot` adres kayıtlı olsun olmasın hep `200` döner — aksi hâlde
+bu uç, hangi e-postaların hesabı olduğunu saldırgana söylerdi. Üretilen jetonun
+yalnızca SHA-256 özeti saklanır, iki saat sonra geçersiz olur, yenisini istemek
+öncekini iptal eder ve bir kez kullanılabilir. `POST /api/auth/reset` jetonu ve
+yeni şifreyi alır.
+
+### Hesap silme
+
+`POST /api/me/delete` hesabın şifresini ister. Önce yaklaşan etkinliklerdeki
+yerler bırakılır ve o ödemeler iade edilir. Yayında gelecek etkinliği olan bir
+organizatör, silmeden önce onları iptal etmek zorundadır; böylece katılımcılar
+organizatörü ortadan kaybolmuş bir kayıtla kalmaz. Uygulama sahibi hesabı bu
+yoldan silinemez.
+
+Hiç ödeme geçmişi olmayan hesap tamamen silinir. Ödeme geçmişi olan hesap ise
+kimliksizleştirilir: ad, e-posta, telefon, şehir, hakkında bilgisi ve bağlı
+Stripe hesabı temizlenir, şifre kullanılamaz bir değerle değiştirilir; ödeme
+satırları sahibin muhasebesi için kalır. Bu, silinme hakkı ile mali kayıt tutma
+yükümlülüğü arasındaki alışılmış dengedir.
+
+---
+
 ## Dil desteği
 
 Uygulama Türkçe ve İngilizce çalışır. Dil, üst çubuktaki **TR / EN** düğmesinden
@@ -321,6 +368,8 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 | `GET` | `/api/health` | Canlılık kontrolü (hosting sağlayıcıları için) |
 | `GET` | `/api/config` | Uygulama adı, para birimi, ödeme modu, desteklenen diller |
 | `POST` | `/api/auth/register` · `/login` · `/logout` | Oturum yönetimi |
+| `POST` | `/api/auth/forgot` · `/api/auth/reset` | E-posta ile şifre sıfırlama |
+| `POST` | `/api/me/delete` | Hesabı sil ya da kimliksizleştir |
 | `GET` `PATCH` | `/api/me` | Profil |
 | `GET` | `/api/events` | Arama + kategori/şehir filtresi |
 | `GET` | `/api/events/:id` | Detay + katılımcılar |
@@ -356,10 +405,17 @@ içinde yapılır; yarım kalmış durum oluşmaz.
 npm run smoke
 ```
 
-60 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
+`npm run smoke` önce `tools/check-i18n.js` çalıştırır: arayüzde kullanılan bir
+çeviri anahtarı sözlüklerden birinde eksikse test kalır — yoksa ekranda
+çevirinin yerine ham `auth.resetInvalid` görünürdü.
+
+96 kontrol: kayıt doğrulaması, arama, ücretli katılımda ödeme zorunluluğu,
 reddedilen kart, başarılı ödeme ve bilet üretimi, çift katılım engeli, ücretsiz
 etkinlikte anında onay, organizatör giriş kontrolü ve tekrar kullanım engeli,
 yetkisiz erişim reddi, iade ve gelir raporuna yansıması, dil pazarlığı
 (`X-Lang`, `?lang=`, varsayılana düşme), çevrilmiş hata mesajları, Connect
 kurulumu ve otomatik bölüşüm, webhook imza reddi (yanlış imza ve zamanı geçmiş
-tekrar) ile idempotent onay, ve ödemenin iade edilmesi gereken kontenjan yarışı.
+tekrar) ile idempotent onay, ödemenin iade edilmesi gereken kontenjan yarışı,
+organizatör iptalinde herkese iade, bu işlemlerin gönderdiği postalar, şifre
+sıfırlama (kullanılmış ve geçersiz jeton dahil), hatırlatmanın bir kez gitmesi
+ve hesap silmenin iki biçimi.

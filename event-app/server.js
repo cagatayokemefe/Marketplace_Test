@@ -7,11 +7,13 @@ const rateLimit = require("express-rate-limit");
 const session = require("express-session");
 const SQLiteStore = require("connect-sqlite3")(session);
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const db = require("./db");
 const config = require("./config");
 const payments = require("./payments");
 const { t, langOf, SUPPORTED } = require("./messages");
+const mailer = require("./mailer");
 const { seed, isEmpty, ticketCode } = require("./seed");
 
 const app = express();
@@ -76,7 +78,7 @@ app.use(
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: config.rateLimit.authPerQuarterHour,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => res.status(429).json({ error: t(req, "rate.auth") }),
@@ -84,7 +86,7 @@ const authLimiter = rateLimit({
 
 const payLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 20,
+  max: config.rateLimit.payPerMinute,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res) => res.status(429).json({ error: t(req, "rate.pay") }),
@@ -204,6 +206,76 @@ function splitAmount(amountMinor) {
 
 const asyncRoute = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch(next);
+
+/** Postayı kullanıcının kendi dilinde göndermek için alıcı bilgisi. */
+function mailRecipient(user) {
+  return {
+    email: user.email,
+    name: user.name,
+    lang: SUPPORTED.includes(user.lang) ? user.lang : config.defaultLang,
+  };
+}
+
+function formatWhen(iso, lang) {
+  try {
+    return new Date(iso).toLocaleString(lang === "en" ? "en-GB" : "tr-TR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (err) {
+    return new Date(iso).toISOString().slice(0, 16).replace("T", " ");
+  }
+}
+
+function formatMoney(minor, currency, lang) {
+  try {
+    return new Intl.NumberFormat(lang === "en" ? "en-GB" : "tr-TR", {
+      style: "currency",
+      currency: currency || config.currency,
+      currencyDisplay: "narrowSymbol",
+      maximumFractionDigits: minor % 100 === 0 ? 0 : 2,
+    }).format(minor / 100);
+  } catch (err) {
+    return (minor / 100).toFixed(2) + " " + (currency || config.currency);
+  }
+}
+
+/** Bilet postası: kayıt onaylandığında ve hatırlatmada kullanılır. */
+function sendTicketMail(template, registrationId, baseUrlValue) {
+  const row = db
+    .prepare(
+      `SELECT r.*, e.title, e.starts_at, e.venue, e.city, u.name AS user_name,
+              u.email AS user_email, u.lang AS user_lang
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       JOIN users u ON u.id = r.user_id
+       WHERE r.id = ?`,
+    )
+    .get(registrationId);
+  if (!row) return Promise.resolve({ sent: false });
+
+  const to = mailRecipient({
+    email: row.user_email,
+    name: row.user_name,
+    lang: row.user_lang,
+  });
+
+  return mailer.sendQuietly(
+    template,
+    to,
+    {
+      title: row.title,
+      when: formatWhen(row.starts_at, to.lang),
+      place: row.venue ? row.venue + " · " + row.city : row.city,
+      code: row.ticket_code,
+      registrationId: row.id,
+    },
+    baseUrlValue,
+  );
+}
 
 /** Kullanıcının Connect hesabının para almaya hazır olup olmadığı. */
 function payoutState(user) {
@@ -330,9 +402,9 @@ app.post("/api/auth/register", authLimiter, (req, res) => {
 
   const info = db
     .prepare(
-      "INSERT INTO users (name, email, password_hash, city) VALUES (?, ?, ?, ?)",
+      "INSERT INTO users (name, email, password_hash, city, lang) VALUES (?, ?, ?, ?, ?)",
     )
-    .run(name, email, bcrypt.hashSync(password, 10), city);
+    .run(name, email, bcrypt.hashSync(password, 10), city, langOf(req));
 
   req.session.userId = info.lastInsertRowid;
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(info.lastInsertRowid);
@@ -349,6 +421,8 @@ app.post("/api/auth/login", authLimiter, (req, res) => {
   }
 
   req.session.userId = user.id;
+  // Postaları en son kullandığı dilde göndermek için tercihini güncel tut.
+  db.prepare("UPDATE users SET lang = ? WHERE id = ?").run(langOf(req), user.id);
   res.json({ user: publicUser(user) });
 });
 
@@ -540,6 +614,16 @@ app.post(
       return res.status(409).json({ error: t(req, "event.alreadyCancelled") });
     }
 
+    // Kayıtları iptal etmeden önce kime haber vereceğimizi topla.
+    const notify = db
+      .prepare(
+        `SELECT u.email, u.name, u.lang, r.amount_minor
+         FROM registrations r
+         JOIN users u ON u.id = r.user_id
+         WHERE r.event_id = ? AND r.status = 'confirmed'`,
+      )
+      .all(row.id);
+
     const paidPayments = db
       .prepare(
         `SELECT p.* FROM payments p
@@ -570,6 +654,30 @@ app.post(
       ).run(row.id);
       db.prepare("UPDATE events SET status = 'cancelled' WHERE id = ?").run(row.id);
     })();
+
+    for (const person of notify) {
+      const to = mailRecipient(person);
+      const refunded = person.amount_minor > 0 && failedIds.length === 0;
+      mailer.sendQuietly(
+        "eventCancelled",
+        to,
+        {
+          title: row.title,
+          when: formatWhen(row.starts_at, to.lang),
+          refundLine:
+            person.amount_minor > 0
+              ? refunded
+                ? to.lang === "en"
+                  ? `Your payment of ${formatMoney(person.amount_minor, row.currency, "en")} has been refunded.`
+                  : `${formatMoney(person.amount_minor, row.currency, "tr")} tutarındaki ödemen iade edildi.`
+                : to.lang === "en"
+                  ? "Your refund is being processed — we will be in touch."
+                  : "İaden işleme alındı, seninle iletişime geçeceğiz."
+              : "",
+        },
+        baseUrl(req),
+      );
+    }
 
     res.json({
       ok: true,
@@ -694,6 +802,8 @@ app.post(
           .run(event.id, req.user.id, uniqueTicketCode());
         return db.prepare("SELECT * FROM registrations WHERE id = ?").get(info.lastInsertRowid);
       })();
+
+      sendTicketMail("joinConfirmed", reg.id, baseUrl(req));
 
       return res.json({
         status: "confirmed",
@@ -921,8 +1031,203 @@ app.post(
     }
 
     const ticket = finalizePayment(payment.id, { cardLast4, providerRef });
+    sendTicketMail("joinConfirmed", payment.registration_id, baseUrl(req));
 
     res.json({ status: "paid", ticketCode: ticket, eventId: payment.event_id });
+  }),
+);
+
+// ── Hatırlatma postaları ────────────────────────────────────────────────────
+
+/**
+ * Yaklaşan etkinlikler için hatırlatma gönderir. Saatte bir çalışır ve her
+ * kayda en fazla bir kez postalar (reminded_at damgası).
+ */
+function sendDueReminders(baseUrlValue) {
+  const due = db
+    .prepare(
+      `SELECT r.id
+       FROM registrations r
+       JOIN events e ON e.id = r.event_id
+       WHERE r.status = 'confirmed'
+         AND r.reminded_at IS NULL
+         AND e.status = 'published'
+         AND datetime(e.starts_at) > datetime('now')
+         AND datetime(e.starts_at) <= datetime('now', '+' || ? || ' hours')`,
+    )
+    .all(config.mail.reminderHours);
+
+  for (const row of due) {
+    db.prepare(
+      "UPDATE registrations SET reminded_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+    ).run(row.id);
+    sendTicketMail("reminder", row.id, baseUrlValue);
+  }
+
+  return due.length;
+}
+
+// ── Şifre sıfırlama ─────────────────────────────────────────────────────────
+
+const RESET_TTL_HOURS = 2;
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Sıfırlama bağlantısı ister. Hesap var mı yok mu bilgisini sızdırmamak için
+ * yanıt her durumda aynıdır.
+ */
+app.post(
+  "/api/auth/forgot",
+  authLimiter,
+  asyncRoute(async (req, res) => {
+    const email = String(req.body.email || "").trim().toLowerCase();
+    const user = db.prepare("SELECT * FROM users WHERE email = ?").get(email);
+
+    if (user) {
+      // Eski, kullanılmamış istekleri geçersiz kıl.
+      db.prepare(
+        "UPDATE password_resets SET used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE user_id = ? AND used_at IS NULL",
+      ).run(user.id);
+
+      const token = crypto.randomBytes(32).toString("hex");
+      db.prepare(
+        `INSERT INTO password_resets (user_id, token_hash, expires_at)
+         VALUES (?, ?, datetime('now', '+' || ? || ' hours'))`,
+      ).run(user.id, hashToken(token), RESET_TTL_HOURS);
+
+      await mailer.sendQuietly(
+        "passwordReset",
+        mailRecipient(user),
+        { token, hours: RESET_TTL_HOURS },
+        baseUrl(req),
+      );
+    }
+
+    res.json({ ok: true });
+  }),
+);
+
+/** Bağlantıdaki jetonla yeni şifreyi belirler. */
+app.post("/api/auth/reset", authLimiter, (req, res) => {
+  const token = String(req.body.token || "").trim();
+  const password = String(req.body.password || "");
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: t(req, "auth.passwordShort") });
+  }
+
+  const row = db
+    .prepare(
+      `SELECT * FROM password_resets
+       WHERE token_hash = ? AND used_at IS NULL AND datetime(expires_at) > datetime('now')`,
+    )
+    .get(hashToken(token));
+
+  if (!row) {
+    return res.status(400).json({ error: t(req, "auth.resetInvalid") });
+  }
+
+  db.transaction(() => {
+    db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(
+      bcrypt.hashSync(password, 10),
+      row.user_id,
+    );
+    db.prepare(
+      "UPDATE password_resets SET used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+    ).run(row.id);
+  })();
+
+  res.json({ ok: true });
+});
+
+// ── Hesap silme ─────────────────────────────────────────────────────────────
+
+/**
+ * Kullanıcının kendi hesabını silmesi (GDPR ve App Store için gerekli).
+ *
+ * Ödeme geçmişi olan hesap tamamen silinmez, kimliksizleştirilir: muhasebe
+ * kayıtlarının tutarlı kalması gerekiyor, ama kişisel veri gidiyor. Hiç ödemesi
+ * olmayan hesap doğrudan silinir.
+ */
+app.post(
+  "/api/me/delete",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    if (req.user.role === "owner") {
+      return res.status(403).json({ error: t(req, "auth.ownerCannotDelete") });
+    }
+    if (!bcrypt.compareSync(String(req.body.password || ""), req.user.password_hash)) {
+      return res.status(403).json({ error: t(req, "auth.wrongPassword") });
+    }
+
+    // Yayındaki etkinliklerini önce kendisi iptal etmeli — katılımcıların
+    // parası ve planı söz konusu, sessizce silinmemeli.
+    const hosting = db
+      .prepare(
+        `SELECT COUNT(*) AS c FROM events
+         WHERE organizer_id = ? AND status = 'published'
+           AND datetime(starts_at) > datetime('now')`,
+      )
+      .get(req.user.id).c;
+    if (hosting > 0) {
+      return res.status(409).json({ error: t(req, "auth.hostHasEvents") });
+    }
+
+    // Gelecekteki katılımlarının parasını geri ver.
+    const upcoming = db
+      .prepare(
+        `SELECT p.* FROM payments p
+         JOIN registrations r ON r.id = p.registration_id
+         JOIN events e ON e.id = r.event_id
+         WHERE p.user_id = ? AND p.status = 'paid' AND r.status = 'confirmed'
+           AND datetime(e.starts_at) > datetime('now')`,
+      )
+      .all(req.user.id);
+
+    let refundedCount = 0;
+    for (const payment of upcoming) {
+      try {
+        await refundPayment(payment);
+        refundedCount += 1;
+      } catch (err) {
+        console.error("Hesap silmede iade başarısız:", payment.id, err);
+      }
+    }
+
+    const hasHistory =
+      db.prepare("SELECT COUNT(*) AS c FROM payments WHERE user_id = ?").get(req.user.id)
+        .c > 0;
+
+    db.transaction(() => {
+      db.prepare(
+        `UPDATE registrations SET status = 'cancelled'
+         WHERE user_id = ? AND status != 'cancelled'
+           AND event_id IN (SELECT id FROM events WHERE datetime(starts_at) > datetime('now'))`,
+      ).run(req.user.id);
+
+      if (hasHistory) {
+        db.prepare(
+          `UPDATE users
+             SET name = 'Deleted user',
+                 email = 'deleted-' || id || '@deleted.invalid',
+                 password_hash = ?,
+                 phone = NULL, city = NULL, bio = NULL,
+                 stripe_account_id = NULL,
+                 stripe_charges_enabled = 0, stripe_payouts_enabled = 0,
+                 stripe_details_submitted = 0
+           WHERE id = ?`,
+        ).run(crypto.randomBytes(32).toString("hex"), req.user.id);
+      } else {
+        db.prepare("DELETE FROM users WHERE id = ?").run(req.user.id);
+      }
+    })();
+
+    req.session.destroy(() => {});
+    res.clearCookie("meetapp.sid");
+    res.json({ ok: true, anonymized: hasHistory, refundedCount });
   }),
 );
 
@@ -980,7 +1285,8 @@ app.post(
               console.error("Webhook iadesi başarısız:", payment.id, err);
             }
           } else {
-            finalizePayment(payment.id, { providerRef });
+            const ticket = finalizePayment(payment.id, { providerRef });
+            if (ticket) sendTicketMail("joinConfirmed", payment.registration_id, baseUrl(req));
           }
         }
       }
@@ -1119,6 +1425,22 @@ app.post(
     }
 
     db.prepare("UPDATE registrations SET status = 'cancelled' WHERE id = ?").run(reg.id);
+
+    const to = mailRecipient(req.user);
+    mailer.sendQuietly(
+      "registrationCancelled",
+      to,
+      {
+        title: event.title,
+        refundLine: refunded
+          ? to.lang === "en"
+            ? `${formatMoney(reg.amount_minor, event.currency, "en")} has been refunded to your card.`
+            : `${formatMoney(reg.amount_minor, event.currency, "tr")} kartına iade edildi.`
+          : "",
+      },
+      baseUrl(req),
+    );
+
     res.json({ ok: true, refunded });
   }),
 );
@@ -1319,7 +1641,17 @@ if (isEmpty()) {
   console.log("• Boş veritabanı bulundu, demo verisi yüklendi.");
 }
 
+// Testlerin elle tetikleyebilmesi için.
+app.locals.sendDueReminders = sendDueReminders;
+
 if (require.main === module) {
+  // Yaklaşan etkinlikler için saatte bir hatırlatma taraması.
+  const REMINDER_INTERVAL_MS = 60 * 60 * 1000;
+  setTimeout(() => {
+    sendDueReminders(config.publicUrl);
+    setInterval(() => sendDueReminders(config.publicUrl), REMINDER_INTERVAL_MS);
+  }, 10 * 1000).unref();
+
   app.listen(config.port, config.host, () => {
     console.log(`\n  MeetApp  →  http://localhost:${config.port}`);
     console.log(`  Ödeme modu: ${payments.provider}`);

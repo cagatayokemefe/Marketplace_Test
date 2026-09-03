@@ -112,4 +112,23 @@ addColumn("users", "stripe_details_submitted", "INTEGER NOT NULL DEFAULT 0");
 addColumn("payments", "payout_mode", "TEXT NOT NULL DEFAULT 'platform'");
 addColumn("payments", "transfer_destination", "TEXT");
 
+// Kullanıcının tercih ettiği dil — e-postaları bu dilde göndeririz.
+addColumn("users", "lang", "TEXT");
+
+// Hatırlatma postasının iki kez gitmemesi için.
+addColumn("registrations", "reminded_at", "TEXT");
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT    NOT NULL UNIQUE,
+    expires_at TEXT    NOT NULL,
+    used_at    TEXT,
+    created_at TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
+`);
+
 module.exports = db;

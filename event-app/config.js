@@ -65,6 +65,22 @@ const config = {
     webhookSecret: (process.env.STRIPE_WEBHOOK_SECRET || "").trim(),
   },
 
+  // Hız sınırları. Varsayılanlar bir insan için fazlasıyla geniş; ortak bir IP
+  // arkasındaki kalabalık bir kurulumda yükseltmek gerekebilir.
+  rateLimit: {
+    authPerQuarterHour: num(process.env.RATE_LIMIT_AUTH, 30),
+    payPerMinute: num(process.env.RATE_LIMIT_PAY, 20),
+  },
+
+  // E-posta. SMTP_URL tanımlı değilse postalar gönderilmez, konsola yazılır —
+  // geliştirirken bağlantı kurmadan içeriği görebilmek için.
+  mail: {
+    smtpUrl: (process.env.SMTP_URL || "").trim(),
+    from: process.env.MAIL_FROM || "MeetApp <no-reply@meetapp.app>",
+    // Hatırlatma postası etkinlikten kaç saat önce gitsin
+    reminderHours: num(process.env.REMINDER_HOURS, 24),
+  },
+
   // Stripe Connect: organizatör payı ödeme anında otomatik olarak onun
   // hesabına geçer. Kapatılırsa para sahipte toplanır ve elle aktarılır.
   connect: {

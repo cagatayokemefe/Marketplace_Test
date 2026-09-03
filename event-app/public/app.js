@@ -1609,7 +1609,23 @@
       '</h2><div id="pay-history"><div class="skeleton" style="height:60px"></div></div></div>' +
       '<div class="card"><button class="btn btn-danger btn-full" id="logout">' +
       h(t("profile.logout")) +
-      "</button></div>";
+      "</button></div>" +
+      (u.role === "owner"
+        ? ""
+        : '<div class="card"><h2 class="section-title" style="margin-top:0">' +
+          h(t("danger.title")) +
+          '</h2><p style="color:var(--muted);font-size:.92rem">' +
+          h(t("danger.intro")) +
+          '</p><p style="color:var(--muted);font-size:.88rem">' +
+          h(t("danger.keepsRecords")) +
+          '</p><div id="delete-error" class="alert alert-error" hidden></div>' +
+          '<div class="field"><label for="d-password">' +
+          h(t("danger.passwordPrompt")) +
+          '</label><input id="d-password" type="password" autocomplete="current-password" ' +
+          'placeholder="••••••••" /></div>' +
+          '<button class="btn btn-danger" id="delete-account">' +
+          h(t("danger.delete")) +
+          "</button></div>");
 
     view.querySelectorAll("[data-set-lang]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -1645,6 +1661,34 @@
           btn.disabled = false;
         });
     });
+
+    var deleteBtn = document.getElementById("delete-account");
+    if (deleteBtn) {
+      deleteBtn.addEventListener("click", function () {
+        var errEl = document.getElementById("delete-error");
+        errEl.hidden = true;
+        if (!confirm(t("danger.confirm"))) return;
+
+        deleteBtn.disabled = true;
+        deleteBtn.textContent = t("danger.deleting");
+
+        api("/me/delete", {
+          method: "POST",
+          body: { password: document.getElementById("d-password").value },
+        })
+          .then(function () {
+            state.user = null;
+            toast(t("danger.done"), "long");
+            go("#/");
+          })
+          .catch(function (err) {
+            errEl.textContent = err.message;
+            errEl.hidden = false;
+            deleteBtn.disabled = false;
+            deleteBtn.textContent = t("danger.delete");
+          });
+      });
+    }
 
     document.getElementById("logout").addEventListener("click", function () {
       api("/auth/logout", { method: "POST" }).then(function () {
@@ -2034,6 +2078,10 @@
       h(isLogin ? t("auth.signIn") : t("auth.signUp")) +
       "</button></form>" +
       (isLogin
+        ? '<p style="text-align:center;margin-top:12px;font-size:.9rem">' +
+          '<a href="#/forgot">' + h(t("auth.forgot")) + "</a></p>"
+        : "") +
+      (isLogin
         ? '<div class="demo-box">' +
           h(t("auth.demoAccounts")) +
           "<br><b>irfan@example.com</b> / irfan1234 &nbsp;" +
@@ -2095,6 +2143,87 @@
     });
   }
 
+  /** Sıfırlama bağlantısı isteme ve yeni şifre belirleme ekranları. */
+  function viewPasswordReset(mode, query) {
+    renderShell("auth");
+    document.body.classList.remove("has-action-bar");
+    var isForgot = mode === "forgot";
+    var token = query ? query.get("token") : null;
+
+    view.className = "auth-wrap";
+    view.innerHTML =
+      '<div class="auth-card"><div class="auth-hero"><div class="brand-mark">🎟️</div><h1>' +
+      h(isForgot ? t("auth.forgotTitle") : t("auth.resetTitle")) +
+      "</h1><p>" +
+      h(isForgot ? t("auth.forgotSub") : t("auth.resetSub")) +
+      '</p></div><div class="card">' +
+      '<div id="reset-error" class="alert alert-error" hidden></div>' +
+      '<div id="reset-ok" class="alert alert-success" hidden></div>' +
+      '<form id="reset-form" novalidate>' +
+      (isForgot
+        ? '<div class="field"><label for="r-email">' +
+          h(t("auth.email")) +
+          '</label><input id="r-email" type="email" autocomplete="email" ' +
+          'placeholder="irfan@example.com" required /></div>'
+        : '<div class="field"><label for="r-password">' +
+          h(t("auth.newPassword")) +
+          '</label><input id="r-password" type="password" autocomplete="new-password" ' +
+          'placeholder="••••••••" required />' +
+          '<div class="hint">' + h(t("auth.passwordHint")) + "</div></div>") +
+      '<button type="submit" class="btn btn-primary btn-full" id="reset-btn">' +
+      h(isForgot ? t("auth.forgotSend") : t("auth.resetSubmit")) +
+      '</button></form></div>' +
+      '<div class="auth-switch"><a href="#/login">' +
+      h(t("auth.backToLogin")) +
+      "</a></div></div>";
+
+    // Jeton yoksa yeni şifre ekranının anlamı yok.
+    if (!isForgot && !token) {
+      var errEl = document.getElementById("reset-error");
+      errEl.textContent = t("auth.resetInvalid");
+      errEl.hidden = false;
+      document.getElementById("reset-btn").disabled = true;
+      return;
+    }
+
+    document.getElementById("reset-form").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var btn = document.getElementById("reset-btn");
+      var errEl = document.getElementById("reset-error");
+      var okEl = document.getElementById("reset-ok");
+      errEl.hidden = true;
+      okEl.hidden = true;
+      btn.disabled = true;
+
+      var request = isForgot
+        ? api("/auth/forgot", {
+            method: "POST",
+            body: { email: document.getElementById("r-email").value },
+          })
+        : api("/auth/reset", {
+            method: "POST",
+            body: {
+              token: token,
+              password: document.getElementById("r-password").value,
+            },
+          });
+
+      request
+        .then(function () {
+          okEl.textContent = isForgot ? t("auth.forgotSent") : t("auth.resetDone");
+          okEl.hidden = false;
+          document.getElementById("reset-form").reset();
+          if (!isForgot) setTimeout(function () { go("#/login"); }, 1600);
+          else btn.disabled = false;
+        })
+        .catch(function (err) {
+          errEl.textContent = err.message;
+          errEl.hidden = false;
+          btn.disabled = false;
+        });
+    });
+  }
+
   // ── Yönlendirici ─────────────────────────────────────────────────────────
 
   function parseHash() {
@@ -2118,6 +2247,8 @@
     if (path === "/" || path === "/discover") return viewDiscover();
     if (path === "/login") return viewAuth("login");
     if (path === "/signup") return viewAuth("register");
+    if (path === "/forgot") return viewPasswordReset("forgot", route.query);
+    if (path === "/reset") return viewPasswordReset("reset", route.query);
     if ((m = path.match(/^\/event\/(\d+)\/attendees$/))) return viewAttendees(m[1]);
     if ((m = path.match(/^\/event\/(\d+)$/))) return viewEventDetail(m[1]);
     if ((m = path.match(/^\/checkout\/(\d+)$/))) return viewCheckout(m[1], route.query);

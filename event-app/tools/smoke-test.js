@@ -20,11 +20,23 @@ const tmpDb = path.join(
 process.env.DB_PATH = tmpDb;
 process.env.SESSION_SECRET = "smoke-test-secret";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_smoke_test";
+// Test, insan hızının çok üstünde istek atıyor; hız sınırları onu engellemesin.
+process.env.RATE_LIMIT_AUTH = "1000";
+process.env.RATE_LIMIT_PAY = "1000";
 delete process.env.STRIPE_SECRET_KEY;
 
 const crypto = require("crypto");
 const app = require("../server");
 const db = require("../db");
+const mailer = require("../mailer");
+
+/** Konsola düşen son postayı bulur (SMTP kapalıyken outbox'a yazılıyor). */
+function lastMail(template) {
+  for (let i = mailer.outbox.length - 1; i >= 0; i--) {
+    if (!template || mailer.outbox[i].template === template) return mailer.outbox[i];
+  }
+  return null;
+}
 
 let failures = 0;
 let checks = 0;
@@ -618,7 +630,157 @@ function client(baseUrl, lang) {
       "Ücretsiz etkinlikte de kayıt iptal edildi",
     );
 
-    // ── 17. Yetkisiz erişim ─────────────────────────────────────────────────
+    // ── 17. E-posta bildirimleri ────────────────────────────────────────────
+    ok(
+      mailer.outbox.some((m) => m.template === "joinConfirmed"),
+      "Katılım onaylanınca bilet postası hazırlanıyor",
+    );
+    ok(
+      mailer.outbox.some((m) => m.template === "eventCancelled"),
+      "Etkinlik iptalinde katılımcılara posta gidiyor",
+    );
+    ok(
+      mailer.outbox.some((m) => m.template === "registrationCancelled"),
+      "Katılım iptalinde posta gidiyor",
+    );
+
+    // Dil tercihi postaya yansımalı
+    const englishUser = client(baseUrl, "en");
+    await englishUser("POST", "/api/auth/register", {
+      name: "Mail Lang",
+      email: "mail.lang@example.com",
+      password: "maillang1234",
+    });
+    r = await englishUser("GET", "/api/events");
+    const freeForMail = r.data.events.find((e) => e.priceMinor === 0);
+    await englishUser("POST", "/api/events/" + freeForMail.id + "/join");
+    ok(
+      /you're going/i.test((lastMail("joinConfirmed") || {}).subject || ""),
+      "Posta kullanıcının dilinde gidiyor",
+      (lastMail("joinConfirmed") || {}).subject,
+    );
+
+    // ── 18. Şifre sıfırlama ─────────────────────────────────────────────────
+    r = await guest("POST", "/api/auth/forgot", { email: "yok@example.com" });
+    ok(r.status === 200, "Olmayan adres için de 200 dönüyor (hesap sızdırılmıyor)");
+    ok(
+      (lastMail() || {}).template !== "passwordReset",
+      "Olmayan adrese sıfırlama postası gönderilmiyor",
+    );
+
+    r = await guest("POST", "/api/auth/forgot", { email: "irfan.test@example.com" });
+    ok(r.status === 200, "Kayıtlı adres için sıfırlama istendi");
+    ok(
+      (lastMail() || {}).template === "passwordReset",
+      "Sıfırlama postası hazırlandı",
+    );
+
+    // Jetonu veritabanından değil, gönderilen bağlantıdan alamayız (hash'li);
+    // bu yüzden akışı doğrulamak için geçersiz jeton denenir.
+    r = await guest("POST", "/api/auth/reset", {
+      token: "gecersiz-jeton",
+      password: "yenisifre123",
+    });
+    ok(r.status === 400, "Geçersiz jeton reddediliyor");
+
+    r = await guest("POST", "/api/auth/reset", { token: "x", password: "kisa" });
+    ok(r.status === 400, "Kısa yeni şifre reddediliyor");
+
+    // Gerçek jetonla uçtan uca: jetonu doğrudan üretip veritabanına yazalım
+    const resetUser = db
+      .prepare("SELECT * FROM users WHERE email = ?")
+      .get("irfan.test@example.com");
+    const rawToken = crypto.randomBytes(16).toString("hex");
+    db.prepare(
+      `INSERT INTO password_resets (user_id, token_hash, expires_at)
+       VALUES (?, ?, datetime('now', '+2 hours'))`,
+    ).run(resetUser.id, crypto.createHash("sha256").update(rawToken).digest("hex"));
+
+    r = await guest("POST", "/api/auth/reset", {
+      token: rawToken,
+      password: "bambaskasifre1",
+    });
+    ok(r.status === 200, "Geçerli jetonla şifre güncelleniyor");
+
+    const afterReset = client(baseUrl);
+    r = await afterReset("POST", "/api/auth/login", {
+      email: "irfan.test@example.com",
+      password: "bambaskasifre1",
+    });
+    ok(r.status === 200, "Yeni şifreyle giriş yapılabiliyor");
+
+    r = await guest("POST", "/api/auth/reset", {
+      token: rawToken,
+      password: "birdahaolmaz1",
+    });
+    ok(r.status === 400, "Aynı jeton ikinci kez kullanılamıyor");
+
+    // ── 19. Hatırlatma postaları ────────────────────────────────────────────
+    r = await zeynep("POST", "/api/events", {
+      title: "Yarınki Etkinlik",
+      city: "İstanbul",
+      startsAt: new Date(Date.now() + 3 * 3600 * 1000).toISOString(),
+      capacity: 10,
+      priceMinor: 0,
+    });
+    const soonEvent = r.data.event;
+    await payer2("POST", "/api/events/" + soonEvent.id + "/join");
+
+    let sentCount = app.locals.sendDueReminders(baseUrl);
+    ok(sentCount >= 1, "Yaklaşan etkinlik için hatırlatma gönderiliyor (" + sentCount + ")");
+    ok(
+      (lastMail() || {}).template === "reminder",
+      "Gönderilen posta hatırlatma şablonu",
+    );
+
+    sentCount = app.locals.sendDueReminders(baseUrl);
+    ok(sentCount === 0, "Aynı kişiye ikinci hatırlatma gitmiyor");
+
+    // ── 20. Hesap silme ─────────────────────────────────────────────────────
+    const doomedUser = client(baseUrl);
+    await doomedUser("POST", "/api/auth/register", {
+      name: "Silinecek Kullanıcı",
+      email: "silinecek@example.com",
+      password: "silinecek1234",
+    });
+
+    r = await doomedUser("POST", "/api/me/delete", { password: "yanlissifre" });
+    ok(r.status === 403, "Yanlış şifreyle hesap silinemiyor");
+
+    r = await owner("POST", "/api/me/delete", { password: "owner1234" });
+    ok(r.status === 403, "Uygulama sahibi hesabı silinemiyor");
+
+    // Yayında etkinliği olan kullanıcı önce onu iptal etmeli
+    r = await zeynep("POST", "/api/me/delete", { password: "zeynep1234" });
+    ok(r.status === 409, "Yayında etkinliği olan organizatör önce iptal etmeli");
+
+    r = await doomedUser("POST", "/api/me/delete", { password: "silinecek1234" });
+    ok(r.status === 200, "Şifre doğruysa hesap siliniyor", JSON.stringify(r.data));
+    ok(r.data.anonymized === false, "Ödemesi olmayan hesap tamamen siliniyor");
+
+    const gone = db
+      .prepare("SELECT COUNT(*) AS c FROM users WHERE email = ?")
+      .get("silinecek@example.com").c;
+    ok(gone === 0, "Kullanıcı kaydı veritabanından gitti");
+
+    r = await doomedUser("GET", "/api/me");
+    ok(!r.data.user, "Silinen hesabın oturumu kapandı");
+
+    // Ödeme geçmişi olan kullanıcı kimliksizleştirilmeli
+    r = await payer2("POST", "/api/me/delete", { password: "payer1234" });
+    ok(r.status === 200 && r.data.anonymized === true, "Ödeme geçmişi olan hesap kimliksizleştiriliyor");
+
+    const anon = db
+      .prepare("SELECT * FROM users WHERE id = ?")
+      .get(
+        db.prepare("SELECT user_id FROM payments ORDER BY id DESC LIMIT 1").get().user_id,
+      );
+    ok(
+      !db.prepare("SELECT 1 FROM users WHERE email = ?").get("payer.two@example.com"),
+      "Kişisel e-posta adresi silindi",
+    );
+
+    // ── 21. Yetkisiz erişim ─────────────────────────────────────────────────
     r = await guest("POST", "/api/events/" + volleyball.id + "/join");
     ok(r.status === 401, "Giriş yapmadan katılım engelleniyor");
 

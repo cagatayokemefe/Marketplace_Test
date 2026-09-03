@@ -163,6 +163,52 @@ automatically instead of leaving them charged with no spot.
 
 ---
 
+## Email, password reset and account deletion
+
+### Email
+
+`mailer.js` sends transactional email. With `SMTP_URL` set it goes out over
+SMTP; without it, the message is printed to the console instead — so you can
+develop and run the tests without a mail server or any network access. Sending
+never blocks a request: if a message fails, the error is logged and the user's
+action still completes. Getting a ticket should not depend on an email landing.
+
+| When | Email |
+| --- | --- |
+| A registration is confirmed (paid or free) | Ticket with the entry code |
+| The host cancels the event | Cancellation notice, with the refund amount |
+| An attendee gives up their spot | Confirmation, with the refund amount |
+| `REMINDER_HOURS` before the start (default 24) | Reminder with the entry code |
+| A password reset is requested | One-time reset link |
+
+Messages are sent in the recipient's own language: the language they last used
+is stored on their account, and the templates exist in both. The reminder scan
+runs hourly inside the server process and stamps each registration, so nobody
+gets the same reminder twice.
+
+### Password reset
+
+`POST /api/auth/forgot` always answers `200`, whether or not the address is
+registered — otherwise the endpoint would tell an attacker which emails have
+accounts. A token is generated, only its SHA-256 hash is stored, it expires
+after two hours, requesting a new one invalidates the previous, and it can be
+used once. `POST /api/auth/reset` takes the token and the new password.
+
+### Account deletion
+
+`POST /api/me/delete` needs the account's password. Upcoming spots are given up
+and those payments refunded first. A host with published future events has to
+cancel them before deleting, so attendees are never left with a booking whose
+host has vanished. The app owner account cannot be deleted this way.
+
+An account with no payment history is deleted outright. One with payment history
+is anonymised instead — name, email, phone, city, bio and any connected Stripe
+account are cleared and the password is replaced with an unusable value, while
+the payment rows survive for the owner's accounting. This is the usual balance
+between the right to erasure and the duty to keep financial records.
+
+---
+
 ## Language support
 
 The app runs in Turkish and English. The language is switched from the
@@ -329,6 +375,8 @@ SQLite transaction, so no half-finished state can survive.
 | `GET` | `/api/health` | Liveness probe (for hosting providers) |
 | `GET` | `/api/config` | App name, currency, payment mode, supported languages |
 | `POST` | `/api/auth/register` · `/login` · `/logout` | Session handling |
+| `POST` | `/api/auth/forgot` · `/api/auth/reset` | Password reset by email |
+| `POST` | `/api/me/delete` | Delete or anonymise the signed-in account |
 | `GET` `PATCH` | `/api/me` | Profile |
 | `GET` | `/api/events` | Search + category/city filters |
 | `GET` | `/api/events/:id` | Detail + attendees |
@@ -366,11 +414,18 @@ SQLite transaction, so no half-finished state can survive.
 npm run smoke
 ```
 
-60 checks: signup validation, search, payment required for paid events, declined
+`npm run smoke` first runs `tools/check-i18n.js`, which fails if the interface
+uses a translation key that is missing from either dictionary — the mistake that
+otherwise shows a raw `auth.resetInvalid` on screen.
+
+96 checks: signup validation, search, payment required for paid events, declined
 card, successful payment and ticket generation, duplicate-join guard, instant
 confirmation for free events, host check-in and its reuse guard, authorization
 boundaries, refunds and how they land in the revenue report, language
 negotiation (`X-Lang`, `?lang=`, falling back to the default), translated
 validation messages, Connect onboarding and the automatic split, webhook
 signature rejection (wrong signature and replayed timestamp) plus idempotent
-confirmation, and the capacity race where a payment has to be refunded.
+confirmation, the capacity race where a payment has to be refunded, refunding
+every attendee when a host cancels, the emails each of those actions sends,
+password reset (including a replayed and an expired token), reminders firing
+once, and account deletion in both its outright and anonymising forms.

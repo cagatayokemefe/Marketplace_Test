@@ -29,6 +29,10 @@ const DICT = {
     "auth.passwordShort": "Şifre en az 8 karakter olmalı.",
     "auth.emailTaken": "Bu e-posta zaten kayıtlı.",
     "auth.badCredentials": "E-posta veya şifre hatalı.",
+    "auth.resetInvalid": "Bu bağlantı geçersiz ya da süresi dolmuş. Yeniden iste.",
+    "auth.wrongPassword": "Şifre hatalı.",
+    "auth.ownerCannotDelete": "Uygulama sahibi hesabı buradan silinemez.",
+    "auth.hostHasEvents": "Önce yayındaki etkinliklerini iptal etmelisin.",
 
     "event.notFound": "Etkinlik bulunamadı.",
     "event.cancelled": "Etkinlik iptal edilmiş.",
@@ -94,6 +98,10 @@ const DICT = {
     "auth.passwordShort": "Password must be at least 8 characters.",
     "auth.emailTaken": "That email is already registered.",
     "auth.badCredentials": "Email or password is incorrect.",
+    "auth.resetInvalid": "This link is invalid or has expired. Request a new one.",
+    "auth.wrongPassword": "Wrong password.",
+    "auth.ownerCannotDelete": "The app owner account cannot be deleted here.",
+    "auth.hostHasEvents": "Cancel your published events first.",
 
     "event.notFound": "Event not found.",
     "event.cancelled": "This event has been cancelled.",
